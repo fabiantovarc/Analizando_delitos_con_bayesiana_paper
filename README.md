@@ -41,7 +41,7 @@ Esto significa que, dado el modelo y los datos observados, existe solo una **pro
 
 ### 5.2. Intervalo Creíble al 95\%
 
-$$\text{IC}_{95\%}(\theta) = [0.4227, 0.5192]$$
+$$IC_{95\%}(\theta) = [0.4227, 0.5192]$$
 
 Este intervalo indica que, con un 95\% de credibilidad, la proporción de delitos sin armas se encuentra entre **42.27\% y 51.92\%**.
 
@@ -95,7 +95,7 @@ Esto indica que hay un **82.62\%** de probabilidad de que la proporción real de
 ### 4.2. Intervalo Creíble al 95\%
 
 La marginal de una Dirichlet es una Beta. El intervalo creíble al 95\% para $\theta_{\text{adultos}}$ es:
-$$\text{IC}_{95\%}(\theta_{\text{adultos}}) = [0.6283, 0.7092]$$
+$$IC_{95\%}(\theta_{\text{adultos}}) = [0.6283, 0.7092]$$
 
 **Interpretación**: El intervalo creíble se encuentra entre **62.83\%** y **70.92\%**. Como el límite inferior está por debajo de 0.65, la **evidencia no es concluyente** bajo un umbral de alta exigencia.
 
@@ -126,7 +126,7 @@ $$\log \lambda_{\text{Bog},t} = \alpha_{\text{Bog}} + \beta_{\text{Bog}} \cdot (
 El análisis posterior (vía MCMC con `brms` y *sampler* manual) arroja:
 -   $P(\beta_{\text{Bog}} > 0 \mid \text{datos}) \approx 1.000$
 -   $P(\lambda_{\text{Bog},2019} > \lambda_{\text{Bog},2010} \mid \text{datos}) \approx 1.000$
--   $\text{IC}_{95\%}$ para el ratio $\lambda_{2019} / \lambda_{2010}$: **[15.95, 24.85]**
+-   $IC_{95\%}$ para el ratio $\lambda_{2019} / \lambda_{2010}$: **[15.95, 24.85]**
 
 **Conclusión (Bogotá):** Existe **evidencia contundente** de que la tasa de delitos en Bogotá ha aumentado de manera sostenida. El modelo estima que la tasa de 2019 fue, con un 95\% de credibilidad, entre 16 y 25 veces mayor que la tasa de 2010.
 
@@ -142,7 +142,7 @@ El análisis posterior (vía MCMC con `brms` y *sampler* manual) arroja:
 
 -   $P(\beta_{\text{Cali}} > 0 \mid \text{datos}) \approx 0.7555$
 -   $P(\lambda_{\text{Cali},2019} > \lambda_{\text{Cali},2010} \mid \text{datos}) \approx 0.7555$
--   $\text{IC}_{95\%}$ para el ratio $\lambda_{2019} / \lambda_{2010}$: **[0.818, 1.510]**
+-   $IC_{95\%}$ para el ratio $\lambda_{2019} / \lambda_{2010}$: **[0.818, 1.510]**
 
 **Observación:** La probabilidad posterior de crecimiento es moderada (75.55\%). El intervalo creíble para el ratio de tasas es amplio e **incluye el 1.0**, lo que significa que no se puede descartar la hipótesis nula (estabilidad o incluso un leve descenso).
 
@@ -160,7 +160,7 @@ El análisis posterior (vía MCMC con `brms` y *sampler* manual) arroja:
 
 Comparamos las muestras posteriores de las pendientes $\Delta = \beta^{\text{Bogotá}} - \beta^{\text{Cali}}$:
 -   $P(\beta^{\text{Bogotá}} > \beta^{\text{Cali}} \mid \text{datos}) \approx 1.000$
--   $\text{IC}_{95\%}$ para la diferencia de pendientes ($\Delta$): **[0.28, 0.36]**
+-   $IC_{95\%}$ para la diferencia de pendientes ($\Delta$): **[0.28, 0.36]**
 
 **Conclusión Final (Comparativa):** La inferencia bayesiana indica con una probabilidad posterior de prácticamente el 100\% que la pendiente de crecimiento anual es **mayor en Bogotá que en Cali**. Dado que el intervalo creíble para la diferencia de pendientes `[0.28, 0.36]` está completamente por encima de cero, la evidencia es concluyente.
 
