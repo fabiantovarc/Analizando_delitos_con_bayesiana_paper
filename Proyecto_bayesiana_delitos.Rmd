@@ -1,0 +1,2190 @@
+---
+title: "Proyecto_bayesiana_final"
+author: "Edisson Fabian Tovar Castro"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+# Configuración inicial para suprimir mensajes, warnings y salidas innecesarias
+knitr::opts_chunk$set(
+  message = TRUE,   # Suprime mensajes de las librerías
+  warning = FALSE,  # Suprime warnings
+  echo = TRUE       # Muestra el código en los chunks
+    
+)
+
+# Configuración del locale
+suppressWarnings(Sys.setlocale("LC_ALL", "es_ES.UTF-8"))
+Sys.setlocale("LC_ALL", "es_ES.UTF-8")
+
+# Cargar librerías necesarias sin mostrar mensajes de inicio
+suppressPackageStartupMessages({
+  library(gridExtra)
+  library(ggplot2)
+  library(dplyr)
+  library(lubridate)
+  library(readr)
+  library(tidyr)
+  library(brms)
+})
+
+```
+
+```{r}
+# Ruta del archivo
+ruta_archivo <- "/home/fabianvs/Documentos/Rstudio/bayesiana_R/delitos_limpios_bogota.csv"
+
+# Carga el dataset
+delitos <- read.csv(ruta_archivo, header = TRUE, sep = ",", encoding = "UTF-8")
+
+# Contenido basico
+str(delitos)
+```
+# 1. Primer modelo
+## 1. Introducción
+
+Breve descripción del problema: queremos saber si más del 50 % de los atracos se cometen sin armas.
+
+## 2. Hipótesis
+
+- **Hipótesis nula (H0)**  
+  La proporción de delitos sin armas es igual al 50 %.  
+  `H0: theta <= 0.5`
+
+- **Hipótesis alternativa (H1)**  
+  La proporción de delitos sin armas supera el 50 %.  
+  `H1: theta > 0.5`
+## 3. Revisamos la cantidad de delitos sin empleo de armas.
+
+```{r}
+set.seed(123)                   # reproducibilidad
+
+## MUESTRA (n = 400 registros/fila)
+
+muestra <- delitos[sample(nrow(delitos), 400), ]
+
+# Total de registros en la muestra
+N_m <- nrow(muestra)
+
+# Éxitos: delitos SIN armas
+y_no_m <- sum(muestra$ARMAS.MEDIOS == "SIN EMPLEO DE ARMAS")
+
+# Fallos: delitos CON armas (todo lo demás)
+y_arm_m <- N_m - y_no_m
+
+
+## POBLACIÓN COMPLETA
+
+N_p <- sum(delitos$CANTIDAD)
+
+y_no_p <- sum(delitos$CANTIDAD[
+  delitos$ARMAS.MEDIOS == "SIN EMPLEO DE ARMAS"
+])
+
+y_arm_p <- N_p - y_no_p
+
+
+## RESUMEN COMPARATIVO
+
+cat("========== RESUMEN COMPARATIVO: MUESTRA vs POBLACIÓN ==========\n\n",
+
+    "------ PERSPECTIVA MUESTRAL (n = 400 registros/fila) ------\n",
+    "Total registros en la muestra             : ", N_m, "\n",
+    "Delitos SIN armas (y_no)                  : ", y_no_m, "\n",
+    "Delitos CON armas (y_arm)                 : ", y_arm_m, "\n",
+    "Proporción SIN armas (y_no / N_m)         : ", round(y_no_m / N_m, 3), "\n",
+    "Proporción CON armas (y_arm / N_m)        : ", round(y_arm_m / N_m, 3), "\n\n",
+
+    "------ PERSPECTIVA POBLACIONAL (base completa) ------\n",
+    "Total delitos en la base (N_p)            : ", N_p, "\n",
+    "Delitos SIN armas en la base (y_no_p)     : ", y_no_p, "\n",
+    "Delitos CON armas en la base (y_arm_p)    : ", y_arm_p, "\n",
+    "Proporción SIN armas (y_no_p / N_p)       : ", round(y_no_p / N_p, 3), "\n",
+    "Proporción CON armas (y_arm_p / N_p)      : ", round(y_arm_p / N_p, 3), "\n")
+```
+## 4. Modelo de verosimilitud
+
+Aquí modelamos el número de delitos sin armas como una distribución binomial.
+
+### 1. Modelo binomial
+
+y dado theta sigue una distribución binomial:
+
+$$y | theta ~ Binomial(N, theta)$$
+
+### 2. Verosimilitud proporcional
+
+La verosimilitud proporcional (ignorando constantes):
+
+$$L(theta | y) ~ theta^y * (1 - theta)^(N - y)$$
+
+> Fuente: Hoff, P. D. (2009). *A First Course in Bayesian Statistical Methods*. Springer. Capítulo 2.2.
+
+```{r}
+# Valores de N y y en la muestra (para modelo binomial)
+# N = número de registros (ensayos binomiales)
+# y = número de éxitos: delitos sin armas
+N <- nrow(muestra)
+y <- sum(muestra$ARMAS.MEDIOS == "SIN EMPLEO DE ARMAS")
+
+
+# Definimos una grilla de valores para θ (proporción de delitos sin armas)
+# Se usa para evaluar la verosimilitud en el rango (0,1)
+theta <- seq(0.001, 0.999, length = 500)
+
+# Calculamos la log-verosimilitud proporcional (sin constantes):
+# log L(θ | y) ∝ y·log(θ) + (N − y)·log(1 − θ)
+loglik <- y * log(theta) + (N - y) * log(1 - theta)
+
+# Para evitar problemas numéricos (underflow al exponenciar),
+# restamos el valor máximo de loglik para que el máximo sea 0
+loglik0 <- loglik - max(loglik)
+
+# Exponenciamos para obtener la verosimilitud proporcional (máximo = 1)
+lik_proporcional <- exp(loglik0)
+
+# Graficamos la verosimilitud L(θ | y) en función de θ
+# Esto muestra qué valores de θ son más compatibles con los datos observados
+plot(theta, lik_proporcional, type = "l", lwd = 2, col = "darkorange",
+     main = "Verosimilitud Binomial proporcional",
+     xlab = "theta", ylab = "L(theta) ~")
+
+```
+### 3. Prior Beta(a, b) especificada mediante media y varianza
+
+Para una distribución Beta(a, b) se cumple:
+
+**Media:**
+
+$$
+\mu = \frac{a}{a + b}
+$$
+
+**Varianza:**
+
+$$
+\sigma^2 = \frac{a \cdot b}{(a + b)^2 (a + b + 1)}
+$$
+
+Si llamamos:
+
+$$
+v = a + b
+$$
+
+Entonces:
+
+$$
+a = \mu \cdot v \quad\quad b = (1 - \mu) \cdot v
+$$
+
+Sustituyendo en la varianza se obtiene:
+
+$$
+\sigma^2 = \frac{\mu (1 - \mu)}{v + 1}
+$$
+
+Despejando \( v \):
+
+$$
+v = \frac{\mu (1 - \mu)}{\sigma^2} - 1
+$$
+
+Finalmente:
+
+$$
+a = \mu \cdot \left( \frac{\mu (1 - \mu)}{\sigma^2} - 1 \right)
+\quad\quad
+b = (1 - \mu) \cdot \left( \frac{\mu (1 - \mu)}{\sigma^2} - 1 \right)
+$$
+
+> **Fuente**: Hoff, P. D. (2009). *A First Course in Bayesian Statistical Methods*. Springer.  
+> Ver Capítulo 2, Sección 2.3 – Prior elicitation for the Beta distribution.
+
+```{r}
+## Prior informativa Beta(α, β)
+
+# Especificamos los momentos deseados para la distribución Beta:
+mu  <- 0.30   # Media a priori: se espera que θ ≈ 0.30 antes de ver los datos
+var <- 0.02   # Varianza a priori: mide cuánta incertidumbre tenemos sobre θ
+
+# Paso intermedio: calculamos v = α + β, despejado de la fórmula de la varianza
+# Fórmula: var = mu * (1 - mu) / (v + 1)  =>  v = mu * (1 - mu) / var - 1
+v <- mu * (1 - mu) / var - 1
+
+# Ahora usamos:  α = mu * v , β = (1 - mu) * v
+alpha <- mu * v     # Calcula α de la Beta(α, β)
+beta  <- (1 - mu) * v  # Calcula β
+
+# Mostramos los parámetros redondeados
+cat("alpha =", round(alpha, 3), "\n",
+    "beta  =", round(beta , 3), "\n")
+
+```
+### Graficamos
+
+```{r}
+# Visualización de la prior Beta(α, β)
+
+# Creamos una secuencia de valores posibles de θ en (0, 1)
+theta <- seq(0, 1, length = 500)
+
+# Graficamos la densidad de la distribución Beta(α, β)
+# Esto nos muestra cómo luce la creencia previa antes de ver los datos
+plot(theta, dbeta(theta, alpha, beta), type = "l",
+     main = "Prior Beta",
+     xlab = expression(theta),
+     ylab = "densidad")
+```
+### Posterior conjugada: modelo binomial-Beta
+
+Dado un modelo binomial con prior conjugada \( \text{Beta}(\alpha, \beta) \), la distribución posterior de \( \theta \) es:
+
+$$
+\theta \mid y \sim \text{Beta}(\alpha + y,\ \beta + N - y)
+$$
+
+> **Fuentes**:  
+> Hoff, P. D. (2009). *A First Course in Bayesian Statistical Methods*. Springer.  
+> Capítulo 2, Sección 2.2: *Conjugate prior distributions*, p. 33.  
+>  
+> Correa, J. C., & Barrera, C. J. (2018). *Introducción a la Estadística Bayesiana*. ITM.  
+> Capítulo 5.1.1: *Distribución binomial con prior Beta*, pp. 33–34.
+
+```{r}
+# 6. Posterior Beta(α*, β*)
+
+# Actualizamos los parámetros de la Beta usando la regla de conjugación:
+#   α* = α + y (éxitos observados)
+#   β* = β + N - y (fracasos observados)
+post_alpha <- alpha + y
+post_beta  <- beta + N - y
+
+# Mostramos los nuevos parámetros de la posterior
+cat("Posterior Beta(α*, β*)\n",
+    "alpha* =", round(post_alpha, 3), "\n",
+    "beta*  =", round(post_beta , 3), "\n")
+```
+
+```{r}
+# Comparación visual: Prior vs Posterior
+
+# Secuencia de valores de θ en (0, 1)
+theta <- seq(0, 1, length = 500)
+
+# Evaluar la densidad de la prior Beta(α, β)
+prior_density <- dbeta(theta, alpha, beta)
+
+# Evaluar la densidad de la posterior Beta(α*, β*)
+posterior_density <- dbeta(theta, post_alpha, post_beta)
+
+# Graficar la prior
+plot(theta, prior_density, type = "l", lwd = 2, col = "steelblue",
+     ylim = c(0, max(posterior_density) * 1.05),  # ajusta el límite superior del eje Y
+     xlab = expression(theta), ylab = "densidad",
+     main = "Distribuciones Prior y Posterior")
+
+# Agregar la posterior sobre el mismo gráfico
+lines(theta, posterior_density, col = "firebrick", lwd = 2)
+
+# Leyenda del gráfico
+legend("topright",
+       legend = c("Prior", "Posterior"),
+       col = c("steelblue", "firebrick"),
+       lwd = 2, bty = "n")
+```
+$$
+P(\theta > 0.5 \mid \text{datos})
+$$
+
+```{r}
+# Probabilidad posterior de que θ > 0.5
+
+# Calculamos P(θ > 0.5 | datos) usando la posterior Beta(α*, β*)
+prob_sup_05 <- 1 - pbeta(0.5, post_alpha, post_beta)
+ 
+# Mostramos el resultado
+prob_sup_05
+
+```
+$$
+H_1 : \theta > 0.5
+$$
+
+```{r}
+# 1) Probabilidad posterior de que θ > 0.5
+
+# Calcula la probabilidad de que la proporción θ de delitos sin armas
+# sea mayor que 0.5 bajo la distribución posterior Beta(α*, β*)
+prob_sup_05 <- 1 - pbeta(0.5, post_alpha, post_beta)
+
+# Imprime el resultado con 4 cifras decimales
+cat("P(θ > 0.5 | datos) =", round(prob_sup_05, 4), "\n")
+```
+### 1. Probabilidad posterior
+$$
+Pr(theta > 0.5 | datos) = 0.1195
+$$
+Esto significa que, dado el modelo y los datos observados, existe solo una **probabilidad posterior del 11.95%** de que **más de la mitad de los delitos se cometan sin armas**.
+
+**Interpretación**: Este valor no es suficientemente alto como para rechazar la hipótesis nula H0: theta <= 0.5.  
+Por tanto, **la evidencia respalda H0**, y no se concluye que la mayoría de los delitos ocurran sin armas.
+
+
+```{r}
+## -----Intervalo de máxima densidad (HPD) al 95 % -----
+
+# Nivel de significación para un intervalo creíble del 95%
+alfa <- 0.05
+
+# Definimos una función objetivo que mide el "error" de dos condiciones:
+#   1) La masa de probabilidad ∫[a,b] p(θ) dθ debe ser (1 - alfa)
+#   2) La densidad en los extremos debe ser la misma: p(a) = p(b)
+# La función recibe un vector x = c(a, b) y devuelve la suma de cuadrados de ambos errores.
+f_hpd <- function(x) {
+  # Masa acumulada entre x[1] y x[2]
+  masa <- pbeta(x[2], post_alpha, post_beta) -
+          pbeta(x[1], post_alpha, post_beta)
+  # Densidades en los extremos
+  dens_lo <- dbeta(x[1], post_alpha, post_beta)
+  dens_hi <- dbeta(x[2], post_alpha, post_beta)
+  # Error cuadrático: (masa - (1 - alfa))^2 + (dens_hi - dens_lo)^2
+  (masa - (1 - alfa))^2 + (dens_hi - dens_lo)^2
+}
+
+# Elegimos como punto inicial para la búsqueda un intervalo centrado en la media posterior
+media_post <- post_alpha / (post_alpha + post_beta)
+
+# Llamamos a optim() para encontrar [a, b] que minimice f_hpd()
+#   c(media_post - 0.1, media_post + 0.1) es la semilla inicial
+res <- optim(c(media_post - 0.1, media_post + 0.1), f_hpd)
+
+# Extraemos los límites óptimos del HPD
+hpd_lo <- res$par[1]
+hpd_hi <- res$par[2]
+
+# Calculamos la densidad en cada uno de esos extremos
+h_lo  <- dbeta(hpd_lo, post_alpha, post_beta)
+h_hi  <- dbeta(hpd_hi, post_alpha, post_beta)
+
+# Definimos una “altura común” promedio para trazar un segmento horizontal
+h_mid <- (h_lo + h_hi) / 2
+
+# Mostramos en consola los valores numéricos del intervalo HPD
+cat("HPD 95% para θ:\n",
+    "  Inferior:", round(hpd_lo, 4), "\n",
+    "  Superior:", round(hpd_hi, 4), "\n")
+
+```
+### Simulación MCMC.
+
+```{r}
+set.seed(123)
+
+# Variables específicas del modelo binomial
+N <- nrow(muestra)
+y <- sum(muestra$ARMAS.MEDIOS == "SIN EMPLEO DE ARMAS")
+
+# Fijamos priors explícitos como escalares
+alpha_bin <- 2.85
+beta_bin  <- 6.65
+
+# Parámetros de la posterior Beta
+shape1 <- alpha_bin + y
+shape2 <- beta_bin  + N - y
+
+# MCMC por Random Walk Metropolis
+S   <- 10000
+sig <- 0.05
+theta <- numeric(S)
+theta[1] <- 0.5
+
+for (s in 2:S) {
+  prev <- theta[s-1]
+  prop <- rnorm(1, prev, sig)
+  if (prop <= 0 || prop >= 1) {
+    theta[s] <- prev
+    next
+  }
+  
+  log_num <- as.numeric(dbeta(prop, shape1, shape2, log = TRUE))
+  log_den <- as.numeric(dbeta(prev, shape1, shape2, log = TRUE))
+  log_r   <- log_num - log_den
+  
+  if (length(log_r) != 1 || !is.finite(log_r)) log_r <- -Inf
+  
+  theta[s] <- if (runif(1) < exp(log_r)) prop else prev
+}
+
+
+# 5) Resumen
+mean(theta)                     
+quantile(theta, c(.025, .5, .975))
+```
+Cadena MCMC
+```{r}
+plot(theta, type = "l", col = "blue", lwd = 1,
+     main = "Traza de la cadena MCMC",
+     xlab = "Iteración", ylab = expression(theta))
+
+```
+
+
+```{r}
+# Densidad posterior de la cadena
+plot(density(theta), lwd = 2, main = "Posterior de θ", xlab = expression(theta))
+
+# Sombrea el IC al 95 %
+polygon(
+  c(theta[theta > 0.4208 & theta < 0.5196], 0.4208),
+  c(density(theta)$y[theta > 0.4208 & theta < 0.5196], 0),
+  col = adjustcolor("skyblue", 0.4), border = NA
+)
+abline(v = c(0.4208, 0.5196), lty = 2, col = "skyblue4")
+abline(v = mean(theta), col = "red", lwd = 2)
+legend("topright",
+       legend = c("Media posterior", "IC 95 %"),
+       col    = c("red", "skyblue4"), lwd = 2, lty = c(1,2))
+
+```
+
+```{r}
+
+# Supongamos que ya tienes post_alpha, post_beta, y h_mid (o h_lo)
+altura_objetivo <- h_lo  # o h_hi o h_mid, son iguales
+
+# Función para buscar las raíces (cuando la densidad alcanza la altura del HPD)
+f_dens_igual <- function(theta) {
+  dbeta(theta, post_alpha, post_beta) - altura_objetivo
+}
+
+# Búsqueda a la izquierda de la moda
+cuartil_izq <- uniroot(f_dens_igual, interval = c(0, media_post))$root
+
+# Búsqueda a la derecha de la moda
+cuartil_der <- uniroot(f_dens_igual, interval = c(media_post, 1))$root
+
+# Resultado
+cat("Cuartiles con altura igual a la del HPD:\n",
+    "Izquierdo:", round(cuartil_izq, 4), "\n",
+    "Derecho :", round(cuartil_der, 4), "\n")
+
+
+# -----------------------------
+# Visualización de la posterior Beta y su HPD al 95%
+# -----------------------------
+
+# Generamos una grilla de valores de θ en el intervalo [0, 1]
+# Esto nos permitirá evaluar y graficar la densidad posterior en un rango continuo
+theta_vals <- seq(0, 1, length = 500)
+
+# Evaluamos la densidad de la distribución posterior Beta(α*, β*) en cada punto de la grilla
+dens_vals  <- dbeta(theta_vals, post_alpha, post_beta)
+
+# Graficamos la curva de densidad posterior
+plot(theta_vals, dens_vals, type = "l", lwd = 2, col = "black",
+     xlab = expression(theta),               # Etiqueta del eje X (usando notación matemática)
+     ylab = "Densidad",                      # Etiqueta del eje Y
+     main = "Distribución posterior Beta y HPD al 95%",  # Título del gráfico
+     ylim = c(0, h_mid * 1.1))               # Limitamos el eje Y ligeramente por encima del HPD
+
+# Dibujamos líneas verticales punteadas en los extremos del intervalo HPD
+# Esto marca visualmente los valores de θ donde empieza y termina el intervalo de máxima densidad
+abline(v = c(hpd_lo, hpd_hi), col = "red", lty = 2)
+
+# Añadimos un segmento horizontal a la altura h_mid
+# Representa visualmente la "altura constante" del HPD en ambos extremos
+segments(x0 = hpd_lo, x1 = hpd_hi,
+         y0 = h_mid, y1 = h_mid,
+         col = "red", lwd = 2)
+
+# Colocamos puntos rojos sobre los extremos del HPD, en su altura real
+# Esto permite verificar visualmente que la altura es (casi) la misma
+points(c(hpd_lo, hpd_hi), c(h_lo, h_hi),
+       col = "red", pch = 19)
+
+```
+```{r}
+# ===== Doble panel: izquierda = vista completa, derecha = zoom (alejado) =====
+library(ggplot2)
+library(gridExtra)
+
+# Reutiliza los objetos que ya calculaste:
+# theta_vals, dens_vals, hpd_lo, hpd_hi, h_lo, h_hi, h_mid, cuartil_izq, cuartil_der
+
+df <- data.frame(theta = theta_vals, dens = dens_vals)
+pts_rojos  <- data.frame(x = c(hpd_lo, hpd_hi), y = c(h_lo, h_hi))
+pts_azules <- data.frame(x = c(cuartil_izq, cuartil_der), y = c(h_mid, h_mid))
+
+capas_comunes <- list(
+  geom_line(size = 1.2, colour = "black"),
+  geom_vline(xintercept = c(hpd_lo, hpd_hi), colour = "red", linetype = "dashed"),
+  geom_segment(aes(x = hpd_lo, xend = hpd_hi, y = h_mid, yend = h_mid),
+               inherit.aes = FALSE, colour = "red", linewidth = 1.2),
+  geom_point(data = pts_rojos,  aes(x, y), inherit.aes = FALSE, colour = "red",  size = 2),
+  geom_vline(xintercept = c(cuartil_izq, cuartil_der), colour = "blue", linetype = "dotted"),
+  geom_point(data = pts_azules, aes(x, y), inherit.aes = FALSE, colour = "blue", size = 2),
+  labs(x = expression(theta), y = "Densidad"),
+  theme_minimal(base_size = 12)
+)
+
+# Panel izquierdo (sin zoom)
+p_overview <- ggplot(df, aes(theta, dens)) + capas_comunes +
+  ggtitle("Vista completa")
+
+# ----------------- Z O O M  A L E J A D O -----------------
+w   <- hpd_hi - hpd_lo
+mid <- (hpd_lo + hpd_hi) / 2
+
+scale_zoom <- 2.10   # << CAMBIA AQUÍ: 1.10 = 10% más ancho (más alejado)
+# (1.00 = igual al HPD, <1 acerca; >1 aleja)
+
+half <- 0.5 * scale_zoom * w
+xlim_zoom <- c(max(0, mid - half), min(1, mid + half))
+
+p_zoom <- ggplot(df, aes(theta, dens)) + capas_comunes +
+  coord_cartesian(xlim = xlim_zoom, ylim = c(0, h_mid * 1.1)) +
+  ggtitle(sprintf("Zoom del (%.0f%%)", 100*scale_zoom))
+
+# Paneles lado a lado (elige el ancho que prefieras)
+gridExtra::grid.arrange(p_overview, p_zoom, ncol = 2, widths = c(3, 2))   # 60/40
+# gridExtra::grid.arrange(p_overview, p_zoom, ncol = 2, widths = c(1, 1)) # 50/50
+# gridExtra::grid.arrange(p_overview, p_zoom, ncol = 2, widths = c(7, 3)) # 70/30
+
+
+
+
+```
+
+```{r}
+# -----------------------------
+# Calcular cuartiles donde la densidad es igual a la altura del HPD
+# -----------------------------
+
+altura_objetivo <- h_lo  # o h_hi o h_mid, son iguales
+
+# Función para buscar las raíces (donde la densidad = altura del HPD)
+f_dens_igual <- function(theta) {
+  dbeta(theta, post_alpha, post_beta) - altura_objetivo
+}
+
+# Buscar raíces a izquierda y derecha de la media posterior
+cuartil_izq <- uniroot(f_dens_igual, interval = c(0, media_post))$root
+cuartil_der <- uniroot(f_dens_igual, interval = c(media_post, 1))$root
+
+
+# -----------------------------
+# Visualización con cuartiles sobre la curva (SIN ZOOM)
+# -----------------------------
+
+# Graficar la densidad posterior Beta
+plot(theta_vals, dens_vals, type = "l", lwd = 2, col = "black",
+     xlab = expression(theta),
+     ylab = "Densidad",
+     main = "Distribución posterior Beta y HPD al 95%")
+
+# Línea horizontal del HPD
+segments(hpd_lo, h_mid, hpd_hi, h_mid, col = "red", lwd = 2)
+
+# Líneas verticales en los extremos del HPD
+abline(v = c(hpd_lo, hpd_hi), col = "red", lty = 2)
+
+# Puntos rojos sobre los extremos HPD
+points(c(hpd_lo, hpd_hi), c(h_lo, h_hi), col = "red", pch = 19)
+
+# ➕ Líneas punteadas en los cuartiles donde la densidad es igual a h_mid
+abline(v = c(cuartil_izq, cuartil_der), col = "blue", lty = 3)
+
+# ➕ Puntos azules sobre los cuartiles
+points(c(cuartil_izq, cuartil_der), rep(h_mid, 2), col = "blue", pch = 19)
+
+# Leyenda
+legend("topright",
+       legend = c("Extremos HPD", "Cuartiles = altura HPD"),
+       col    = c("red", "blue"),
+       lwd    = 2,
+       lty    = c(2, 3),
+       pch    = c(19, 19))
+```
+```{r}
+# ===== Doble panel: izquierda = vista completa, derecha = zoom (alejado) =====
+library(ggplot2)
+library(gridExtra)
+
+# Reutiliza los objetos que ya calculaste:
+# theta_vals, dens_vals, hpd_lo, hpd_hi, h_lo, h_hi, h_mid, cuartil_izq, cuartil_der
+
+df <- data.frame(theta = theta_vals, dens = dens_vals)
+pts_rojos  <- data.frame(x = c(hpd_lo, hpd_hi), y = c(h_lo, h_hi))
+pts_azules <- data.frame(x = c(cuartil_izq, cuartil_der), y = c(h_mid, h_mid))
+
+# --- Estilo base (grilla, tipografías y caption alineado a la izquierda)
+estilo_base <- theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.major = element_line(colour = "gray85", linewidth = 0.6),
+    panel.grid.minor = element_line(colour = "gray92", linewidth = 0.3),
+    plot.title       = element_text(face = "bold", hjust = 0.5, size = 18),
+    axis.title.x     = element_text(size = 16),
+    axis.title.y     = element_text(size = 16),
+    plot.caption     = element_text(hjust = 0, size = 10),  # “Fuente:” a la izquierda
+    plot.caption.position = "plot"
+  )
+
+# ===================== PON ESTE BLOQUE AQUÍ =====================
+# (Reemplaza tu definición anterior de 'capas_comunes' por esta)
+capas_comunes <- list(
+  geom_line(size = 1.2, colour = "black", alpha = 0.55),      # curva negra más suave
+  geom_vline(xintercept = c(hpd_lo, hpd_hi),
+             colour = "red", linetype = "dashed", alpha = 0.35),  # (opcional) rojas más suaves
+  geom_segment(aes(x = hpd_lo, xend = hpd_hi, y = h_mid, yend = h_mid),
+               inherit.aes = FALSE, colour = "red", linewidth = 1.2, alpha = 0.60), # altura roja más suave
+  geom_point(data = pts_rojos,  aes(x, y), inherit.aes = FALSE, colour = "red",  size = 2),
+  geom_vline(xintercept = c(cuartil_izq, cuartil_der), colour = "red", linetype = "dashed"),
+  geom_point(data = pts_azules, aes(x, y), inherit.aes = FALSE, colour = "blue", size = 2),
+  labs(x = expression(theta), y = "Densidad", caption = "Fuente: elaboración propia"),
+  estilo_base
+)
+# ================================================================
+
+# Panel izquierdo (sin zoom)
+p_overview <- ggplot(df, aes(theta, dens)) + capas_comunes +
+  ggtitle("Vista completa")
+
+# ----------------- Z O O M  A L E J A D O -----------------
+w   <- hpd_hi - hpd_lo
+mid <- (hpd_lo + hpd_hi) / 2
+
+scale_zoom <- 2.10   # 1.00 = igual al HPD, <1 acerca; >1 aleja
+half <- 0.5 * scale_zoom * w
+xlim_zoom <- c(max(0, mid - half), min(1, mid + half))
+
+p_zoom <- ggplot(df, aes(theta, dens)) + capas_comunes +
+  coord_cartesian(xlim = xlim_zoom, ylim = c(0, h_mid * 1.1)) +
+  ggtitle(sprintf("Zoom del (%.0f%%)", 100*scale_zoom))
+
+# Paneles lado a lado (mantiene proporciones/zoom)
+gridExtra::grid.arrange(p_overview, p_zoom, ncol = 2, widths = c(3, 2))   # 60/40
+# gridExtra::grid.arrange(p_overview, p_zoom, ncol = 2, widths = c(1, 1)) # 50/50
+# gridExtra::grid.arrange(p_overview, p_zoom, ncol = 2, widths = c(7, 3)) # 70/30
+
+
+
+```
+### 2. Intervalo creíble al 95%
+
+IC_95% (theta) = [0.4227, 0.5192]
+
+Este intervalo indica que, con un 95% de credibilidad, la proporción de delitos sin armas se encuentra entre **42.27% y 51.92%**.
+
+**Interpretación**: Como el valor 0.5 está contenido dentro del intervalo, **no se puede descartar la hipótesis nula**.  
+Esto indica que **no hay evidencia suficiente** para afirmar que más del 50% de los delitos se cometen sin armas.
+
+
+
+### 5. Conclusión
+
+Con base en la distribución posterior y su intervalo creíble al 95%, **no se encuentra evidencia estadística fuerte a favor de la hipótesis alternativa**.  
+Por tanto, **no se puede concluir** que la mayoría de los delitos sean cometidos sin armas.
+
+
+# 2. Segundo modelo. Multinomial Dirichlet
+## 1. Introduccion:
+Queremos saber:
+
+> ¿Es la proporción de delitos cometidos por adultos superior al 65 %?
+
+### Hipótesis bayesiana
+
+- **Hipótesis nula (H0):**  
+  La proporción de víctimas adultas es igual o menor al 65%.
+
+  $`H0 : theta_adultos <= 0.65`$
+
+- **Hipótesis alternativa (H1):**   
+  La proporción de víctimas adultas supera el 65%.
+
+  $`H1 : theta_adultos > 0.65`$
+```{r}
+set.seed(123)
+n_m <- 400
+
+# 1) Expandir filas según CANTIDAD (cada fila → tantas filas como delitos)
+delitos_expandidos <- delitos %>% uncount(weights = CANTIDAD)
+
+# 2) Muestreo simple de 400 delitos “individuales”
+muestra2 <- delitos_expandidos %>% slice_sample(n = n_m)
+
+# 3) Ahora reagrupar para volver a sumar CANTIDAD por fila original, si lo necesitas
+#    (o directamente trabajar con 'muestra2' como eventos individuales)
+y_vec <- muestra2 %>%
+  # si necesitas volver a agrupar por edad:
+  group_by(AGRUPA.EDAD.PERSONA) %>%
+  summarise(y = n(), .groups = "drop")
+
+# 4) Grafico de barras de la muestra “real” de 400 delitos
+ggplot(y_vec, aes(x = AGRUPA.EDAD.PERSONA, y = y)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(
+    title = "Conteo de delitos por grupo etario (muestra de 400 delitos)",
+    x     = "Grupo etario",
+    y     = "Número de delitos"
+  ) +
+  theme_minimal()
+```
+
+### 2. Modelo y verosimilitud
+
+Supongamos que los conteos por grupo etario siguen una distribución **multinomial**:
+
+$$
+\mathbf{y} = (y_1, y_2, y_3, y_4) \mid \boldsymbol{\theta} \sim \text{Multinomial}(N, \boldsymbol{\theta}),
+$$
+
+donde $\boldsymbol{\theta} = (\theta_1, \theta_2, \theta_3, \theta_4)$ representa las proporciones verdaderas de delitos en cada grupo,  
+y $N = \sum_{k=1}^{4} y_k$ es el total de eventos observados.
+
+
+
+**Verosimilitud**  
+Dada una configuración $\boldsymbol{\theta}$ y los datos observados $\mathbf{y}$, la verosimilitud es:
+
+$$
+\mathcal{L}(\boldsymbol{\theta} \mid \mathbf{y}) \propto \prod_{k=1}^{4} \theta_k^{y_k}
+$$
+
+
+**Distribución a priori: Dirichlet**  
+Como prior sobre $\boldsymbol{\theta}$, asumimos una distribución Dirichlet con parámetros  
+$\boldsymbol{\alpha} = (\alpha_1, \dots, \alpha_4)$:
+
+$$
+p(\boldsymbol{\theta}) \propto \prod_{k=1}^{4} \theta_k^{\alpha_k - 1}
+$$
+
+
+
+**Posterior no normalizada**  
+Aplicando la regla de Bayes (y usando la conjugación entre la multinomial y la Dirichlet), la posterior no normalizada es:
+
+$$
+p(\boldsymbol{\theta} \mid \mathbf{y}) \propto \mathcal{L}(\boldsymbol{\theta} \mid \mathbf{y}) \cdot p(\boldsymbol{\theta}) 
+\propto \prod_{k=1}^{4} \theta_k^{y_k + \alpha_k - 1}
+$$
+
+Esta expresión corresponde a una distribución Dirichlet con parámetros actualizados:  
+$\boldsymbol{\alpha}_{\text{posterior}} = \boldsymbol{\alpha} + \mathbf{y}$
+
+```{r}
+# === Prior Dirichlet informativa ===
+
+# Definimos las medias esperadas (creencias a priori) para cada grupo etario.
+# Estas suman 1, ya que representan una distribución de probabilidad categórica.
+mu <- c(
+  "NO REPORTADO" = 0.05,
+  "adolescentes" = 0.25,
+  "adultos"      = 0.60,
+  "menores"      = 0.10
+)
+
+# Asumimos una varianza común para todos los grupos (controla la "certeza" del prior)
+var_common <- 0.002
+
+# Seleccionamos la media de los adultos (el grupo más frecuente) para calcular α₀
+mu_adultos <- mu["adultos"]
+
+# Fórmula para calcular α₀ a partir de la varianza deseada:
+# α₀ = (μ * (1 - μ) / σ²) - 1
+alpha0 <- mu_adultos * (1 - mu_adultos) / var_common - 1
+
+# Calculamos el vector de parámetros α para la distribución Dirichlet:
+# αᵢ = μᵢ * α₀ para cada categoría i
+alpha <- mu * alpha0
+
+# Mostramos los valores de α redondeados a 2 decimales
+print(round(alpha, 2))
+
+```
+### 4. Posterior Dirichlet
+
+Dado que la distribución Dirichlet es conjugada con la multinomial,  
+la posterior también es una Dirichlet, con parámetros actualizados:
+
+$$
+\boldsymbol{\theta} \mid \mathbf{y} \sim \text{Dirichlet}(\alpha_1 + y_1,\ \dots,\ \alpha_4 + y_4)
+$$
+
+Esto nos permite actualizar nuestras creencias sobre las proporciones verdaderas de delitos en cada grupo etario.
+
+
+```{r}
+# === Calcular la posterior Dirichlet ===
+
+# Reordenar los valores de alpha para que coincidan con el orden de los grupos en y_vec
+alpha <- alpha[y_vec$AGRUPA.EDAD.PERSONA]
+
+# Sumar los conteos observados y los parámetros de la prior para obtener los parámetros de la posterior
+alpha_post <- setNames(alpha + y_vec$y, y_vec$AGRUPA.EDAD.PERSONA)
+
+# Guardamos la suma total de parámetros posteriores (α₁ + ... + α_k) para usar más adelante
+S <- sum(alpha_post)
+
+# -------------------------------------------------------------------------
+# GRÁFICO COMPARATIVO: VEROSIMILITUD vs PRIOR vs POSTERIOR (θ_adultos)
+# -------------------------------------------------------------------------
+
+# === Secuencia de valores de theta para graficar las curvas ===
+theta_vals <- seq(1e-4, 1 - 1e-4, length.out = 600)
+
+# Total de delitos observados en la muestra
+N <- sum(y_vec$y)
+
+# Conteo observado en el grupo "adultos"
+y_adultos <- y_vec$y[y_vec$AGRUPA.EDAD.PERSONA == "adultos"]
+
+# Valor del parámetro alpha para el grupo "adultos"
+alpha_ad <- alpha["adultos"]
+
+# Valor del parámetro posterior para "adultos"
+alpha_post_ad <- alpha_post["adultos"]
+
+# Suma total de los parámetros posteriores (para posterior beta marginal)
+S_post <- sum(alpha_post)
+
+# === Calcular las densidades para graficar ===
+
+# Verosimilitud binomial beta (con prior uniforme Beta(1,1))
+lik_vals <- dbeta(theta_vals, y_adultos + 1, N - y_adultos + 1)
+
+# Densidad de la prior marginal para adultos (marginal de la Dirichlet)
+prior_vals <- dbeta(theta_vals, alpha_ad, sum(alpha) - alpha_ad)
+
+# Densidad posterior marginal para adultos (también beta marginal de Dirichlet)
+post_vals <- dbeta(theta_vals, alpha_post_ad, S_post - alpha_post_ad)
+
+# === Función para escalar prior y posterior a [0, 1] (para comparación visual) ===
+scale01 <- function(x) x / max(x)
+
+# === Unir datos en un solo data frame para graficar con ggplot ===
+df_plot_mix <- rbind(
+  data.frame(theta = theta_vals,
+             dens  = lik_vals,           # verosimilitud sin escalar
+             tipo  = "Verosimilitud"),
+  data.frame(theta = theta_vals,
+             dens  = scale01(prior_vals), # prior escalada
+             tipo  = "Prior (escalada)"),
+  data.frame(theta = theta_vals,
+             dens  = scale01(post_vals),  # posterior escalada
+             tipo  = "Posterior (escalada)")
+)
+
+# === Graficar las tres curvas comparativamente ===
+ggplot(df_plot_mix, aes(x = theta, y = dens)) +
+  geom_line(color = "black") +
+  facet_wrap(~tipo, scales = "free_y") +  # Cada curva en su propio panel con eje y libre
+  labs(
+    title = expression("Verosimilitud (real), prior y posterior (escaladas) de " * theta[adultos]),
+    x     = expression(theta[adultos]),
+    y     = "Densidad"
+  ) +
+  theme_minimal(base_size = 13)
+
+```
+
+```{r}
+# Extraer el valor del parámetro posterior (alpha) correspondiente al grupo "adultos"
+a_adultos <- alpha_post["adultos"]
+
+# Calcular la probabilidad posterior de que theta_adultos > 0.65
+# Esto corresponde al área bajo la curva Beta(a, b) a la derecha de 0.65
+prob_adultos_gt_65 <- 1 - pbeta(0.65, shape1 = a_adultos, shape2 = S - a_adultos)
+
+# Mostrar el resultado con 4 decimales
+cat("P(theta_adultos > 0.65 | datos) =", round(prob_adultos_gt_65, 4), "\n")
+
+```
+### La probabilidad posterior
+
+\[
+P(\theta_{\mathrm{adultos}} > 0.65 \mid \text{datos}) = 0.8262
+\]
+
+indica que, según el modelo Dirichlet–Multinomial y la muestra analizada, hay un **82.62 %** de probabilidad de que la proporción real de delitos cometidos por adultos supere el 65 %. Este valor denota evidencia moderada a favor de la hipótesis alternativa, aunque no alcanza el umbral del 95 % que solemos exigir para considerarla “fuerte”.
+
+
+```{r}
+# Crear una secuencia de valores entre 0 y 1 para representar posibles valores de theta_adultos
+theta_vals <- seq(0, 1, length.out = 500)
+
+# Calcular la densidad de la distribución posterior marginal (Beta) para el grupo "adultos"
+dens_vals <- dbeta(theta_vals, shape1 = a_adultos, shape2 = S - a_adultos)
+
+# Crear un data frame con los valores de theta y sus densidades correspondientes
+df_post <- data.frame(theta = theta_vals, dens = dens_vals)
+
+# Graficar la distribución posterior de theta_adultos
+ggplot(df_post, aes(x = theta, y = dens)) +
+  geom_line(color = "blue", size = 1) +  # curva de densidad en azul
+  geom_area(data = subset(df_post, theta > 0.65),  # sombrear región theta > 0.65
+            aes(x = theta, y = dens),
+            fill = "red", alpha = 0.3) +
+  geom_vline(xintercept = 0.65, linetype = "dashed") +  # línea vertical punteada en 0.65
+  labs(
+    title = expression("Distribución posterior de " * theta[adultos]),
+    x = expression(theta[adultos]),
+    y = "Densidad"
+  )
+```
+
+Como la marginal de cada componente de una Dirichlet es una Beta,  
+el intervalo creíble al 95% para $\theta_{\text{adultos}}$ se obtiene como:
+
+
+$$
+\text{IC}_{95\%}(\theta_{\text{adultos}}) = 
+\left[ Q_{0.025},\ Q_{0.975} \right] =
+\left[ \text{qbeta}(0.025,\ a,\ S - a),\ \text{qbeta}(0.975,\ a,\ S - a) \right]
+$$
+
+donde  $a = \alpha_{\text{adultos}} + y_{\text{adultos}}$
+
+
+```{r}
+# ---------------------------------------------------------
+# Cálculo del intervalo creíble al 95 % para θ_adultos
+# ---------------------------------------------------------
+
+# Como la marginal de cada componente de una Dirichlet es una Beta,
+# podemos extraer el intervalo creíble univariado para θ_adultos
+# usando los cuantiles de la distribución Beta posterior marginal.
+
+# Los parámetros de esta Beta son:
+#   α* = α_adultos + y_adultos
+#   β* = S - α_adultos - y_adultos
+# Donde:
+#   - S = suma total de los parámetros α posteriores
+#   - a_adultos = α* para adultos ya calculado
+
+# Obtenemos el intervalo creíble del 95 % a partir de los percentiles 2.5 % y 97.5 %
+IC_adultos <- qbeta(c(0.025, 0.975), shape1 = a_adultos, shape2 = S - a_adultos)
+
+# Mostramos el intervalo en consola, redondeado a 4 decimales
+cat("IC 95% para theta_adultos: [",
+    round(IC_adultos[1], 4), ",", round(IC_adultos[2], 4), "]\n")
+
+
+```
+### Observación
+
+El intervalo creíble del 95 % para θ<sub>adultos</sub> se encuentra entre **62.83 %** y **70.92 %**, y la probabilidad posterior de que dicha proporción supere el 65 % es de **82.62 %**.  
+Esto sugiere una **tendencia moderada** a favor de que más del 65 % de los delitos fueron cometidos por adultos, aunque la **evidencia no es concluyente** bajo un umbral de alta exigencia como el 95 %.
+
+
+```{r}
+# Graficar la distribución posterior de theta_adultos con su intervalo creíble del 95 %
+
+ggplot(df_post, aes(x = theta, y = dens)) +
+  geom_line(color = "blue", size = 1) +  # Curva de densidad posterior en azul
+
+  # Sombrear el área correspondiente al intervalo creíble [2.5%, 97.5%]
+  geom_area(data = subset(df_post, theta > IC_adultos[1] & theta < IC_adultos[2]),
+            aes(x = theta, y = dens),
+            fill = "green", alpha = 0.3) +
+
+  # Líneas verticales en los extremos del intervalo creíble
+  geom_vline(xintercept = IC_adultos, linetype = "dashed", color = "darkgreen") +
+
+  # Títulos y etiquetas de los ejes
+  labs(
+    title = expression("Intervalo creíble al 95% para " * theta[adultos]),
+    x = expression(theta[adultos]),
+    y = "Densidad"
+  )
+
+```
+### Observación
+
+El intervalo creíble al 95 % para θ<sub>adultos</sub>, sombreado en verde en la figura, va aproximadamente de **0.6283** a **0.7092**. Esto significa que, dadas la muestra observada y la prior especificada, hay un 95 % de probabilidad de que la proporción verdadera de delitos cometidos por adultos se sitúe en ese rango. Como todo el intervalo está por encima de 0.65, refuerza la evidencia a favor de la hipótesis alternativa
+\[
+H_1:\ \theta_{\text{adultos}} > 0.65.
+\]
+
+```{r}
+# Decisión bayesiana basada en dos criterios:
+# 1) Probabilidad posterior > 0.95
+# 2) El límite inferior del intervalo creíble también es > 0.65
+
+# Validación de que los valores no son NA (por seguridad)
+if (!is.na(prob_adultos_gt_65) &&
+    !is.na(IC_adultos[1]) &&
+    prob_adultos_gt_65 > 0.95 &&         # Criterio 1: alta probabilidad posterior
+    IC_adultos[1] > 0.65) {              # Criterio 2: el IC está completamente por encima de 0.65
+
+  mensaje <- "Evidencia fuerte a favor de H1: la proporción de víctimas adultas es mayor al 65%."
+
+} else {
+
+  mensaje <- "No hay evidencia suficiente para concluir que las víctimas adultas superan el 65%."
+
+}
+
+# Mostrar mensaje de decisión
+cat(mensaje, "\n")
+```
+### Conclusión final
+
+No se cumple el criterio de decisión bayesiana para considerar **evidencia fuerte** a favor de la hipótesis alternativa.  
+Aunque la probabilidad posterior de que la proporción de delitos cometidos por adultos supere el 65% es **82.62%**,  
+el **intervalo creíble del 95%** no se encuentra completamente por encima de 0.65.  
+
+Por tanto, **no hay evidencia suficiente para afirmar que más del 65% de los delitos fueron cometidos por adultos**,  
+según los datos analizados y el modelo Dirichlet–Multinomial especificado.
+
+```{r}
+# ----------------------------
+# PARÁMETROS DEL MODELO
+# ----------------------------
+
+# Conteos por grupo etario (ejemplo real del documento)
+y <- c(
+  adultos      = sum(muestra$AGRUPA.EDAD.PERSONA == "adultos"),
+  adolescentes = sum(muestra$AGRUPA.EDAD.PERSONA == "adolescentes"),
+  menores      = sum(muestra$AGRUPA.EDAD.PERSONA == "menores"),
+  noreportado  = sum(muestra$AGRUPA.EDAD.PERSONA == "No reportado")
+)
+
+# Prior Dirichlet plana
+alpha <- rep(1, 4)
+
+# ----------------------------
+# GIBBS SAMPLER PARA DIRICHLET
+# ----------------------------
+S <- 10000  # iteraciones
+theta_chain <- matrix(NA, nrow = S, ncol = 4)
+colnames(theta_chain) <- names(y)
+
+for (s in 1:S) {
+  g <- rgamma(4, shape = alpha + y, rate = 1)
+  theta_chain[s, ] <- g / sum(g)
+}
+
+# ----------------------------
+# RESULTADOS NUMÉRICOS
+# ----------------------------
+theta_mean <- colMeans(theta_chain)
+theta_HPD <- apply(theta_chain, 2, quantile, probs = c(0.025, 0.975))
+
+# Mostramos resultados
+theta_mean
+theta_HPD
+
+# ----------------------------
+# GRÁFICO DE TRAZA PARA 𝜃_adultos
+# ----------------------------
+plot(theta_chain[, "adultos"], type = "l", col = "blue",
+     ylab = expression(theta[adultos]), xlab = "Iteración",
+     main = "Traza de la cadena MCMC para θ adultos")
+
+```
+
+```{r}
+# ----------------------------------------------------------
+# 1. Conteos observados
+# ----------------------------------------------------------
+y <- c(
+  "NO REPORTADO" = 99,
+  "adolescentes" = 15,
+  "adultos"      = 276,
+  "menores"      = 10
+)
+
+# ----------------------------------------------------------
+# 2. Prior Dirichlet informativa (usa tus α ya calculadas)
+#    — aquí coloco las que obtuviste con la varianza 0.002 —
+# ----------------------------------------------------------
+alpha <- c(
+  "NO REPORTADO" = 2.60,   # 0.05 * α₀  (α₀ ≈ 51.98)
+  "adolescentes" = 13.00,  # 0.25 * α₀
+  "adultos"      = 31.19,  # 0.60 * α₀
+  "menores"      = 5.20    # 0.10 * α₀
+)
+# comprueba que los nombres coinciden
+stopifnot(all(names(y) == names(alpha)))
+
+# ----------------------------------------------------------
+# 3. Gibbs sampler (10 000 iteraciones)
+# ----------------------------------------------------------
+set.seed(123)
+S <- 10000
+theta_chain <- matrix(NA, nrow = S, ncol = 4,
+                      dimnames = list(NULL, names(y)))
+
+for (s in 1:S) {
+  g <- rgamma(4, shape = alpha + y, rate = 1)
+  theta_chain[s, ] <- g / sum(g)
+}
+
+# ----------------------------------------------------------
+# 4. Resultados numéricos
+# ----------------------------------------------------------
+theta_mean <- colMeans(theta_chain)
+theta_HPD  <- t(apply(theta_chain, 2, quantile,
+                      probs = c(0.025, 0.975)))
+
+print(round(theta_mean, 4))
+print(round(theta_HPD, 4))
+
+# ----------------------------------------------------------
+# 5. Traza para θ_adultos
+# ----------------------------------------------------------
+plot(theta_chain[, "adultos"], type = "l", col = "blue",
+     ylab = expression(theta[adultos]), xlab = "Iteración",
+     main = expression("Traza de la cadena MCMC para " * theta[adultos]))
+
+
+```
+
+```{r}
+
+```
+# 3. Bogota vs Cali
+## 1. Bogota - Planteamiento de la hipotesis
+
+### 1. Pregunta concreta  
+¿La tasa anual de delitos en Bogota ha aumentado entre 2010 y 2019?
+
+Sea $Y_{Bog,t}$ el conteo de delitos en el año $t$ y  
+$$\lambda_{Bog,t} = \operatorname{E}[Y_{Bog,t}]$$.
+
+Modelamos  
+$$
+Y_{Bog,t} \mid \lambda_{Bog,t} \sim \text{Poisson}(\lambda_{Bog,t}), \qquad  
+\log \lambda_{Bog,t} = \alpha_{Bog} + \beta_{Bog} \cdot (t - 2010).
+$$
+
+### 2.Hipótesis
+
+$$
+\begin{aligned}
+\mathbf{H}_0 &: \quad \beta_{\text{Bog}} \le 0
+               &&\Longleftrightarrow&&
+               \lambda_{\text{Bog},2019} \le \lambda_{\text{Bog},2010} \\[4pt]
+\mathbf{H}_1 &: \quad \beta_{\text{Bog}} > 0
+               &&\Longleftrightarrow&&
+               \lambda_{\text{Bog},2019} > \lambda_{\text{Bog},2010}
+\end{aligned}
+$$
+
+La decisión se tomará con la probabilidad posterior
+
+$$
+P\!\bigl(\beta_{\text{Bog}} > 0 \,\bigm|\, \mathbf y\bigr)
+$$
+
+o verificando si el intervalo creíble (95%) del cociente
+
+$$
+\frac{\lambda_{\text{Bog},2019}}{\lambda_{\text{Bog},2010}}
+$$
+
+excluye el valor 1
+
+
+### 3.Preprocesamiento
+
+```{r}
+bog_path <- "/home/fabian/Documentos/bayesiana_R/delitos_limpios_bogota.csv"
+# Carga el dataset
+delitos_bogo <- read.csv(bog_path, header = TRUE, sep = ",", encoding = "UTF-8")
+# 🔎 Eliminación de registros con fecha faltante
+delitos_bogo <- delitos_bogo %>%
+  filter(!is.na(FECHA.HECHO))
+# Contenido basico
+str(delitos_bogo)
+```
+
+
+
+```{r}
+## ---------------------------------------------------------------
+##  SEGUNDO MODELO CON MUESTRA (Poisson‑regresión con β)
+## ---------------------------------------------------------------
+set.seed(123)         # reproducibilidad
+n_m <- 400            # tamaño de la muestra (puedes variar)
+
+# --- Muestra aleatoria ---------------------------------------
+muestra3 <- delitos_bogo[sample(nrow(delitos_bogo), n_m), ]
+
+# --- Limpieza de categoría vacía -----------------------------
+muestra3 <- muestra3 %>%
+  mutate(year = year(as.Date(FECHA.HECHO)))
+```
+**Objetivo**
+
+Queremos obtener \( y_t \), el número total de delitos registrados en **Bogotá**, dentro de la muestra, para cada año \( t \in \{2010, \ldots, 2019\} \).  
+Estos conteos actuarán como la **estadística suficiente** para ajustar el modelo de regresión Poisson con tendencia temporal.
+
+**Notación**
+
+$$
+y_t = \sum_{i=1}^{n_t} \mathrm{CANTIDAD}_i \qquad \text{(en la muestra)}
+$$
+
+
+```{r}
+bogo_yr_m <- muestra3 %>%
+  group_by(year) %>%
+  summarise(y = sum(CANTIDAD), .groups = "drop")
+head(bogo_yr_m)
+```
+```{r}
+str(bogo_yr_m)
+```
+
+### PASO 4: Verosimilitud – Poisson
+
+#### Modelo estadístico
+
+Suponemos que el número de delitos \( y_t \) en el año \( t \) sigue una distribución Poisson con media \( \lambda_t \):
+
+$$
+y_t \mid \lambda_t \sim \operatorname{Poisson}(\lambda_t)
+$$
+
+Como modelamos una **tendencia temporal**, la media se expresa mediante una relación log-lineal:
+
+$$
+\log \lambda_t = \alpha + \beta (t - 2010)
+$$
+
+
+```{r}
+# --- 4. Ajuste del modelo Poisson con pendiente β ---------------
+#   y_t ~ Poisson(exp(alpha + beta*(year-2010)))
+
+prior_list <- c(
+  prior(normal(0, 10), class = Intercept),   # α
+  prior(normal(0, 10), class = b)            # β
+)
+
+bogo_brms <- brm(
+  formula = y ~ 1 + I(year - 2010),          # α + β*(t-2010)
+  family  = poisson(link = "log"),
+  data    = bogo_yr_m,
+  prior   = prior_list,
+  chains  = 4, iter = 4000, seed = 123,
+  refresh = 0                                # menos salida en pantalla
+)
+```
+
+
+### 5. Inferencia posterior y comparación temporal
+
+Una vez ajustado el modelo de regresión Poisson con enlace logarítmico mediante inferencia bayesiana (usando MCMC con `brms`), el siguiente paso es **interpretar los parámetros posteriores**, en particular:
+
+- La **pendiente** \( \beta \), que representa el cambio promedio anual en la tasa logarítmica de delitos.
+- Las tasas \( \lambda_t = \exp(\alpha + \beta \cdot (t - 2010)) \), en años específicos (como 2010 y 2019).
+
+Desde una perspectiva bayesiana, la inferencia se basa en el análisis de **distribuciones posteriores completas**, no en estimaciones puntuales ni valores-*p* clásicos. Por ello:
+
+- Se estima la **probabilidad posterior** de que \( \beta > 0 \), lo que responde directamente a la hipótesis alternativa.
+- Se simulan las tasas \( \lambda_{2010} \) y \( \lambda_{2019} \) a partir de las muestras posteriores, lo que permite:
+
+  - Calcular \( P(\lambda_{2019} > \lambda_{2010}) \)
+  - Obtener el intervalo creíble del 95% para el **cociente**:
+
+    $$
+    \frac{\lambda_{2019}}{\lambda_{2010}}
+    $$
+
+Este enfoque sigue los principios del análisis bayesiano descritos por [Gelman et al. (2013)](https://www.stat.columbia.edu/~gelman/book/), quienes promueven el uso de simulaciones posteriores para realizar inferencias sobre transformaciones de parámetros, como diferencias, razones o probabilidades.
+
+En términos prácticos, **el objetivo de esta sección es verificar si los datos respaldan una tendencia creciente en la tasa de delitos en Bogotá entre 2010 y 2019**.
+
+
+```{r}
+# --- 5. Probabilidad posterior de β>0 ---------------------------
+post_draws <- as_draws_df(bogo_brms)
+
+prob_beta_gt0 <- mean(post_draws$b_IyearM2010 > 0)
+
+cat("P(β > 0 | muestra) ≈", round(prob_beta_gt0, 4), "\n")
+```
+
+
+
+### 6. Comparación de tasas esperadas: \( \lambda_{2019} \) vs. \( \lambda_{2010} \)
+
+Una vez ajustado el modelo con `brms`, utilizamos las muestras posteriores obtenidas mediante MCMC para simular y comparar las tasas esperadas de delitos 
+en los años extremos: **2010** y **2019**.
+
+#### Fundamento
+
+Dado que el modelo asume:
+
+$$
+\log \lambda_t = \alpha + \beta \cdot (t - 2010)
+\quad \Rightarrow \quad
+\lambda_t = \exp\bigl(\alpha + \beta \cdot (t - 2010)\bigr),
+$$
+
+para los años específicos:
+
+- \( \lambda_{2010} = \exp(\alpha) \)  
+- \( \lambda_{2019} = \exp(\alpha + 9\beta) \)
+
+Simulando estas tasas para cada muestra de la posterior, podemos:
+
+1. Estimar directamente la probabilidad  
+   \( P(\lambda_{2019} > \lambda_{2010}) \),  
+   sin recurrir a pruebas frecuentistas.
+
+2. Obtener el **intervalo creíble del 95%** del cociente:
+
+   $$
+   \frac{\lambda_{2019}}{\lambda_{2010}},
+   $$
+
+   lo cual indica en qué magnitud habría aumentado (o disminuido) la tasa.
+
+Este enfoque es coherente con la práctica bayesiana recomendada por *Gelman et al.* (2013, Cap.3.4), donde la comparación de cantidades derivadas,
+como diferencias, cocientes o probabilidades entre parámetros, se realiza mediante simulación directa desde la distribución posterior.
+
+
+```{r}
+# --- 6. Simular λ_2010 y λ_2019 ---------------------------------
+lambda_2010 <- exp(post_draws$b_Intercept)                # α  (t=2010)
+lambda_2019 <- exp(post_draws$b_Intercept +
+                   post_draws$b_IyearM2010 * 9)           # α+β*9
+
+prob_lambda_ratio <- mean(lambda_2019 > lambda_2010)
+
+ratio_Q <- quantile(lambda_2019 / lambda_2010,
+                    probs = c(0.025, 0.5, 0.975))
+
+cat("P(λ_2019 > λ_2010) ≈", round(prob_lambda_ratio, 4), "\n",
+    "IC95% de la razón λ_2019 / λ_2010:",
+    paste(round(ratio_Q, 3), collapse = " – "), "\n")
+
+```
+####**Observación**
+
+La probabilidad posterior  
+\[
+P(\theta_{\mathrm{adultos}} > 0.65 \mid \text{datos}) \approx 0.8262
+\]  
+indica que hay un **82.62 %** de masa de probabilidad acumulada por encima del umbral 0.65, con un valor medio cercano a la zona central de la distribución. Además, el intervalo creíble al 95 % para \(\theta_{\mathrm{adultos}}\),  
+\[
+[0.6283,\ 0.7092],
+\]  
+toca ligeramente valores por debajo de 0.65 en su extremo inferior, lo cual sugiere una **evidencia moderada** a favor de la hipótesis alternativa \(H_1: \theta_{\mathrm{adultos}}>0.65\), pero sin alcanzar el rigor de un 95 % de certeza completa.
+
+
+### **Paso 7: Visualización – evolución de la tasa \( \lambda_t \)**
+
+#### **Objetivo**
+
+Representar gráficamente, para cada año \( t \in \{2010, \dots, 2019\} \):
+
+- La **media posterior** de la tasa esperada \( \lambda_t = \mathbb{E}[Y_t] \)
+- Un **intervalo creíble del 95%** para cada \( \lambda_t \), derivado de las simulaciones posteriores del modelo de regresión log-lineal:
+
+  $$
+  \lambda_t = \exp\bigl(\alpha + \beta \cdot (t - 2010)\bigr)
+  $$
+
+Este paso permite **visualizar la tendencia temporal** en la tasa de delitos, e interpretar de forma intuitiva si existe un aumento consistente, 
+así como la **incertidumbre asociada** en cada punto temporal.
+
+La construcción de estas curvas se basa en las muestras MCMC de los parámetros \( \alpha \) y \( \beta \), a partir de las cuales se generan 
+distribuciones completas de \( \lambda_t \) para cada año.
+
+Este enfoque es coherente con la práctica bayesiana recomendada por *Gelman et al.* (2013, Cap. 3.4), donde la comparación de cantidades derivadas,
+como diferencias, cocientes o probabilidades entre parámetros, se realiza mediante simulación directa desde la distribución posterior.
+
+```{r}
+# --- 7. Evolución de λ_t en el tiempo ---------------------------
+
+# Secuencia de años
+years <- sort(unique(bogo_yr_m$year))
+
+# Para cada año, computamos λ_t = exp(α + β*(t - 2010)) en cada muestra
+lambda_mat <- sapply(years, function(t) {
+  exp(post_draws$b_Intercept + post_draws$b_IyearM2010 * (t - 2010))
+})
+
+# Convertimos en data frame resumen (promedios e ICs por año)
+lambda_df <- data.frame(
+  year = years,
+  mean = apply(lambda_mat, 2, mean),
+  q025 = apply(lambda_mat, 2, quantile, probs = 0.025),
+  q975 = apply(lambda_mat, 2, quantile, probs = 0.975)
+)
+
+# Graficar evolución
+ggplot(lambda_df, aes(x = year, y = mean)) +
+  geom_ribbon(aes(ymin = q025, ymax = q975), fill = "skyblue", alpha = 0.4) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Evolución de la tasa esperada de delitos en Bogotá",
+    subtitle = "Media posterior y intervalo creíble del 95%",
+    x = "Año", y = expression(lambda[t])
+  ) +
+  theme_minimal()
+
+
+```
+#### **Interpretación de la gráfica**
+
+La siguiente gráfica muestra la **evolución de la tasa esperada de delitos anuales en Bogotá** (\( \lambda_t \)) durante el periodo 2010–2019, 
+basada en el modelo de regresión Poisson ajustado mediante inferencia bayesiana.
+
+- **Línea azul gruesa**: Representa la **media posterior** de \( \lambda_t \) para cada año, es decir, el valor esperado del número de delitos 
+según el modelo y los datos observados.
+
+- **Banda azul clara**: Corresponde al **intervalo creíble del 95%**, calculado a partir de los percentiles 2.5% y 97.5% de las simulaciones 
+posteriores de \( \lambda_t \). Esta banda refleja la **incertidumbre** sobre la tasa verdadera en cada año.
+
+- **Puntos negros**: Señalan los valores medios estimados, resaltando el **comportamiento año a año** de la tasa.
+#### **Observación**
+
+La forma creciente y progresiva de la curva de \( \lambda_t \), junto con intervalos creíbles cada vez más amplios hacia los últimos años, 
+sugiere una evolución ascendente en la tasa esperada de delitos durante el periodo 2010–2019. Esta representación visual complementa 
+la evidencia numérica obtenida en pasos anteriores y proporciona una interpretación intuitiva de la tendencia modelada en el contexto 
+de la inferencia bayesiana.
+
+## 8. Decisión
+
+#### Regla de decisión
+
+Se rechaza la hipótesis nula \( \mathbf{H}_0 \) si **al menos uno** de los siguientes criterios se cumple —ambos derivados directamente de la distribución posterior:
+
+1. \( P(\beta > 0 \mid \text{datos}) > 0.95 \)
+2. \( P(\lambda_{2019} > \lambda_{2010} \mid \text{datos}) > 0.95 \)
+
+> El umbral de 0.95 es un estándar comúnmente aceptado para considerar que existe **evidencia fuerte** a favor de la hipótesis alternativa 
+en análisis bayesiano (Gelman et al., 2013).
+
+
+```{r}
+# === 8. Decisión más informativa =====================================
+
+cat("Decisión inferencial\n")
+cat(sprintf("P(β > 0 | datos)        = %.4f\n", prob_beta_gt0))
+cat(sprintf("P(λ_2019 > λ_2010)      = %.4f\n", prob_lambda_ratio))
+cat(sprintf("IC 95%% de λ_2019 / λ_2010 = [%.3f, %.3f]\n",
+            ratio_Q[1], ratio_Q[3]))
+
+if (prob_beta_gt0 > 0.95 || prob_lambda_ratio > 0.95) {
+  cat("\nConclusión: hay *evidencia fuerte* de que la tasa de delitos en Bogotá ha aumentado entre 2010 y 2019.\n")
+} else {
+  cat("\nConclusión: no hay evidencia suficiente para afirmar que la tasa ha aumentado.\n")
+}
+
+```
+
+
+
+## 9. Chequeo predictivo posterior
+
+### Fundamento
+
+El **chequeo predictivo posterior** (*posterior predictive check*, PPC) es una herramienta fundamental del análisis bayesiano. Su objetivo es:
+
+> Comparar los datos observados con datos simulados a partir del modelo ajustado,  
+> para evaluar si este reproduce adecuadamente las características esenciales de los datos.
+
+Este enfoque se basa en simular observaciones futuras \( y^{\text{rep}} \sim p(y \mid \theta) \), utilizando parámetros \( \theta \) 
+extraídos de la distribución posterior, y luego comparar estas simulaciones con los datos reales.
+
+Se trata de un principio clave defendido por *Gelman et al.* (2013, Cap.6.3), quienes afirman:
+
+> *“Model checking and model expansion are key steps in Bayesian data analysis.”*
+
+### ¿Qué se chequea?
+
+1. Que los conteos de delitos generados por el modelo (Poisson) sean coherentes con los observados.
+2. Que el modelo log-lineal en el tiempo sea capaz de reproducir la evolución anual de los delitos.
+
+
+### Parte 1: Chequeo global (con `pp_check()`)
+
+El siguiente gráfico muestra la distribución de los conteos observados frente a los conteos simulados, mediante histogramas 
+generados con la función `pp_check()` de `brms`.  
+
+Este chequeo visual permite evaluar si el modelo Poisson ajustado es razonable para los datos observados.
+
+
+```{r}
+# Chequeo global con 200 réplicas simuladas
+pp_check(bogo_brms, nsamples = 200) +
+  ggtitle("Chequeo predictivo posterior (PPC)  Bogotá",
+          subtitle = "¿El modelo puede generar datos similares a los observados?")
+```
+####**Observación sobre el PPC de Bogotá**
+
+El gráfico superpone la densidad de los datos observados (línea azul oscura) con 200 réplicas simuladas desde la posterior (líneas azul claro):
+
+* La mayor parte de las curvas simuladas se agrupan en un modo principal —aprox. entre 50 y 150 delitos— y reproducen razonablemente la forma decreciente de la cola intermedia.  
+* Sin embargo, el histograma observado exhibe **un segundo “bulto” en el extremo derecho** (alrededor de 450 delitos) que **casi ninguna simulación reproduce**.  
+* Esta discrepancia sugiere que el modelo Poisson log‑lineal **subestima la probabilidad de años con conteos excepcionalmente altos**; dicho de otro modo, la cola derecha de la distribución real es más pesada de lo que asume el modelo.  
+* Podría ser indicio de **sobre‑dispersión** o de un **cambio estructural** (por ejemplo, un año atípico o un fenómeno no capturado por la tendencia lineal).  
+
+En conjunto, el PPC indica que, si bien el modelo describe bien la dinámica general, **no capta plenamente los eventos extremos**, por lo que convendría explorar extensiones (p.ej. una distribución negativabinomial o un componente de cambio de nivel).
+
+
+### Parte 2: Chequeo por año (intervalos predictivos)
+
+Muestra si el modelo reproduce adecuadamente los conteos por año, junto con intervalos creibles para cada $y_t$.
+
+```{r}
+# Chequeo por intervalo año a año
+pp_check(bogo_brms, type = "intervals") +
+  ggtitle("Chequeo PPC por año Bogotá",
+          subtitle = "Intervalos predictivos para cada año comparados con observaciones")
+```
+####**Observación sobre el PPC “intervals” año a año (Bogotá)**
+
+El gráfico compara, para cada punto temporal (años 2010‑2019), los conteos reales (puntos azul oscuro) con los **intervalos predictivos del 90 %** derivados de la posterior (puntos y barras azul claro).
+
+* **Ajuste razonable en los primeros años ≈(2010‑2014).**  
+  Los datos observados caen cerca del centro de los intervalos simulados, indicando que el modelo reproduce bien los niveles iniciales.
+
+* **Tendencia capturada pero con ligera sub‑estimación intermedia ≈(2015‑2017).**  
+  Los valores reales se sitúan en la parte alta de los intervalos, sugiriendo que el crecimiento real supera levemente la pendiente estimada.
+
+* **Fallo claro en 2018‑2019.**  
+  El conteo real de 2018 queda por encima del límite superior del 90% P.I., y 2019 es aún más extremo, fuera del rango de casi todas las simulaciones.  
+  Esto confirma la **cola derecha pesada** detectada en el PPC global: el modelo Poisson log‑lineal subestima eventos de alta criminalidad al final de la serie.
+
+En resumen, el modelo describe bien los años iniciales y la tendencia general, pero resulta **demasiado optimista (o rígido) para los picos recientes**, apuntando de nuevo a la necesidad de modelar sobre‑dispersión o incorporar un término de cambio estructural.
+
+```{r}
+# ----------------------------------------------------------
+# 0. Datos (ya calculados en tu flujo)
+# ----------------------------------------------------------
+# bogo_yr_m: data.frame con columnas year (2010‑2019) y y (conteo)
+years <- bogo_yr_m$year
+y     <- bogo_yr_m$y
+stopifnot(length(years) == length(y))   # seguridad
+
+# ----------------------------------------------------------
+# 1. Priors débiles: α, β ~ Normal(0, 10^2)
+# ----------------------------------------------------------
+prior_sd <- 10
+
+# ----------------------------------------------------------
+# 2. Función de log‑posterior
+# ----------------------------------------------------------
+log_post <- function(alpha, beta) {
+  lambda <- exp(alpha + beta * (years - 2010))
+  sum(dpois(y, lambda, log = TRUE)) +
+    dnorm(alpha, 0, prior_sd, log = TRUE) +
+    dnorm(beta,  0, prior_sd, log = TRUE)
+}
+
+# ----------------------------------------------------------
+# 3. Metropolis‑within‑Gibbs
+# ----------------------------------------------------------
+set.seed(123)
+S <- 20000            # iteraciones totales
+burn <- 5000          # descartadas como 'burn‑in'
+
+alpha <- beta <- numeric(S)
+alpha[1] <- 0         # punto de arranque
+beta[1]  <- 0
+sd_prop_alpha <- 0.30 # varianzas de propuesta
+sd_prop_beta  <- 0.05
+
+for (s in 2:S) {
+  # ---- actualizar α
+  a_prop <- rnorm(1, alpha[s-1], sd_prop_alpha)
+  log_r  <- log_post(a_prop, beta[s-1]) - log_post(alpha[s-1], beta[s-1])
+  alpha[s] <- if (log(runif(1)) < log_r) a_prop else alpha[s-1]
+
+  # ---- actualizar β
+  b_prop <- rnorm(1, beta[s-1], sd_prop_beta)
+  log_r  <- log_post(alpha[s], b_prop) - log_post(alpha[s], beta[s-1])
+  beta[s] <- if (log(runif(1)) < log_r) b_prop else beta[s-1]
+}
+
+# ----------------------------------------------------------
+# 4. Resumen posterior y diagnósticos
+# ----------------------------------------------------------
+alpha_post <- alpha[-(1:burn)]
+beta_post  <- beta[-(1:burn)]
+
+c(
+  mean_alpha = mean(alpha_post),
+  mean_beta  = mean(beta_post),
+  prob_beta_gt0 = mean(beta_post > 0)
+)
+
+# ---- tasas para 2010 y 2019
+lambda_2010 <- exp(alpha_post)                    # t = 2010 ⇒ β*(0)
+lambda_2019 <- exp(alpha_post + beta_post * 9)    # t = 2019 ⇒ β*(9)
+
+prob_ratio_gt1 <- mean(lambda_2019 > lambda_2010)
+ratio_hpd      <- quantile(lambda_2019 / lambda_2010, c(.025, .5, .975))
+
+# ----------------------------------------------------------
+# 5. Graficas de convergencia (ejemplo: traza de β)
+# ----------------------------------------------------------
+par(mfrow = c(1,2))
+plot(beta_post, type = "l", col = "blue",
+     main = expression("Trace de "*beta),
+     ylab = expression(beta), xlab = "Iteración")
+acf(beta_post, main = expression("ACF de "*beta))
+
+```
+## 10. Conclusiones
+
+A partir del análisis bayesiano realizado, se obtuvieron los siguientes resultados clave:
+
+- \( P(\lambda_{2019} > \lambda_{2010}) \approx 1 \)
+- Intervalo creíble del 95% para la razón \( \lambda_{2019} / \lambda_{2010} \):  
+  \( 15.948 \) – \( 19.820 \) – \( 24.852 \)
+
+
+
+### Decisión inferencial
+
+Los criterios definidos previamente para rechazar la hipótesis nula se cumplen claramente:
+
+- \( P(\beta > 0 \mid \text{datos}) = 1.0000 \)
+- \( P(\lambda_{2019} > \lambda_{2010} \mid \text{datos}) = 1.0000 \)
+- Intervalo creíble del 95% para la razón de tasas:  
+  \( \lambda_{2019} / \lambda_{2010} \in [15.948,\ 24.852] \)
+
+
+
+### Conclusión final
+
+Existe **evidencia contundente** de que la tasa de delitos en Bogotá ha aumentado de manera sostenida entre 2010 y 2019, 
+según el modelo Poisson ajustado mediante inferencia bayesiana.  
+
+Tanto la pendiente positiva (\( \beta > 0 \)) como la razón de tasas significativamente superior a 1 (más de 15 veces) 
+respaldan con fuerza esta **tendencia creciente**.
+
+
+
+
+### 1. Pregunta para Cali
+
+¿La tasa anual de delitos en Cali ha aumentado entre los años 2010 y 2019?
+
+### 2. Hipótesis bayesiana
+
+Partimos del mismo planteamiento utilizado para Bogotá, empleando una regresión log-lineal sobre los conteos anuales. Suponemos que el número de delitos en Cali en el año \( t \), denotado por \( Y_{\text{Cali},t} \), sigue una distribución Poisson con parámetro \( \lambda_{\text{Cali},t} \):
+
+$$
+Y_{\text{Cali},t} \sim \operatorname{Poisson}(\lambda_{\text{Cali},t})
+$$
+
+La tasa esperada varía en el tiempo de forma log-lineal:
+
+$$
+\log \lambda_{\text{Cali},t}
+= \alpha_{\text{Cali}} + \beta_{\text{Cali}} \cdot (t - 2010)
+$$
+
+
+
+### Formulación de hipótesis
+
+- **Hipótesis nula \( (H_0)\) :**  
+  No hay evidencia de que la tasa de delitos en Cali haya aumentado:  
+  \[
+  \beta_{\text{Cali}} \le 0
+  \quad \Longleftrightarrow \quad
+  \lambda_{\text{Cali},2019} \le \lambda_{\text{Cali},2010}
+  \]
+
+- **Hipótesis alternativa \( (H_1) \) :**  
+  La tasa de delitos en Cali ha aumentado entre 2010 y 2019:  
+  \[
+  \beta_{\text{Cali}} > 0
+  \quad \Longleftrightarrow \quad
+  \lambda_{\text{Cali},2019} > \lambda_{\text{Cali},2010}
+  \]
+
+
+
+Desde la perspectiva bayesiana, se evaluará esta afirmación estimando directamente la probabilidad posterior:
+
+$$
+P(\beta_{\text{Cali}} > 0 \mid \text{datos})
+$$
+
+y analizando la evolución de las tasas simuladas \( \lambda_t \) en el periodo.
+```{r}
+cali_path <- "/home/fabian/Documentos/bayesiana_R/cali_datos_limpios.csv"
+# Carga el dataset
+delitos_cali <- read.csv(cali_path, header = TRUE, sep = ",", encoding = "UTF-8")
+# Contenido basico
+str(delitos_cali)
+```
+  
+```{r}
+## ---------------------------------------------------------------
+##  SEGUNDO MODELO CON MUESTRA (Poisson‑regresión con β)
+## ---------------------------------------------------------------
+set.seed(123)         # reproducibilidad
+n_m <- 400            # tamaño de la muestra (puedes variar)
+
+# --- Muestra aleatoria ---------------------------------------
+muestra3 <- delitos_cali[sample(nrow(delitos_cali), n_m), ]
+
+# --- Limpieza de categoría vacía -----------------------------
+muestra3 <- muestra3 %>%
+  mutate(year = year(as.Date(FECHA_HECHO)))
+```
+**Objetivo**
+
+Queremos obtener \( y_t \), el número total de delitos registrados en **Cali**, dentro de la muestra, para cada año \( t \in \{2010, \ldots, 2019\} \).  
+Estos conteos actuarán como la **estadística suficiente** para ajustar el modelo de regresión Poisson con tendencia temporal.
+
+**Notación**
+
+Dado que cada fila del conjunto de datos representa un delito individual, simplemente contamos el número de observaciones por año:
+
+$$
+y_t = \text{número de observaciones en el año } t
+\qquad \text{(en la muestra)}
+$$
+
+```{r}
+# --- Conteos por año en la muestra ---------------------------
+cali_yr_m <- muestra3 %>%
+  group_by(year) %>%
+  summarise(y = n(), .groups = "drop")  # usamos n() en vez de sum(CANTIDAD)
+
+print(cali_yr_m)
+```
+### Paso 4: Verosimilitud – Poisson
+
+#### Modelo estadístico
+
+Suponemos que el número de delitos registrados por año en **Cali** sigue una distribución Poisson, apropiada para modelar conteos 
+de eventos discretos en unidades fijas de tiempo.
+
+Sea \( y_t \) el número de delitos observados en el año \( t \). Entonces modelamos:
+
+$$
+y_t \mid \lambda_t \sim \operatorname{Poisson}(\lambda_t)
+$$
+
+donde \( \lambda_t \) representa la tasa esperada de delitos en el año \( t \).  
+Para capturar una posible tendencia temporal, utilizamos un modelo de regresión log-lineal:
+
+$$
+\log \lambda_t = \alpha + \beta \cdot (t - 2010)
+$$
+
+De este modo, el modelo permite que la tasa de delitos varíe de forma exponencial a lo largo del tiempo, dependiendo del valor de la pendiente \( \beta \):
+
+- Si \( \beta > 0 \), se interpreta como una **tendencia creciente** en los delitos.
+- Si \( \beta < 0 \), se interpreta como una **tendencia decreciente**.
+
+Este tipo de modelamiento es clásico en el análisis de datos de conteo con estructura temporal, y está ampliamente recomendado en 
+*Bayesian Data Analysis* (Gelman et al., 2013, cap. 14), donde se destaca que los modelos Poisson con enlace logarítmico permiten 
+realizar inferencias claras y coherentes sobre tasas esperadas.
+
+
+```{r}
+# === Paso 4: Ajuste del modelo Poisson con tendencia temporal ===
+#   y_t ~ Poisson(exp(alpha + beta * (year - 2010)))
+
+prior_list_cali <- c(
+  prior(normal(0, 10), class = Intercept),   # α
+  prior(normal(0, 10), class = b)            # β
+)
+
+cali_brms <- brm(
+  formula = y ~ 1 + I(year - 2010),
+  family  = poisson(link = "log"),
+  data    = cali_yr_m,
+  prior   = prior_list_cali,
+  chains  = 4, iter = 4000, seed = 123,
+  refresh = 0
+)
+
+```
+### Paso 5: Inferencia posterior – Tendencia temporal en la tasa de delitos en Cali
+
+Una vez ajustado el modelo de regresión Poisson mediante inferencia bayesiana con `brms`, se procede a interpretar los parámetros posteriores, en particular la pendiente \( \beta \), que indica si existe evidencia de un cambio sistemático en la tasa de delitos a lo largo del tiempo.
+
+---
+
+### Interpretación bayesiana de \( \beta \)
+
+- Si \( \beta > 0 \), sugiere que la tasa de delitos ha **aumentado** con los años.
+- Si \( \beta < 0 \), sugiere una **disminución** en la tasa.
+- El valor esperado \( \mathbb{E}[\beta \mid \text{datos}] \) proporciona un estimador puntual, pero más relevante desde la perspectiva 
+bayesiana es la **probabilidad posterior**:
+
+  $$
+  P(\beta > 0 \mid \text{datos})
+  $$
+
+Esta probabilidad se estima directamente a partir de las simulaciones de la distribución posterior generadas por el modelo.
+
+Este enfoque refleja la lógica propuesta por *Gelman et al.* (2013, Capítulos 1 y 2), quienes argumentan que, en lugar de aceptar o 
+rechazar hipótesis de forma dicotómica, el análisis bayesiano permite **cuantificar el grado de credibilidad** de una afirmación directamente desde la distribución posterior.
+
+
+```{r}
+# === Paso 5: Extraer muestras de la posterior ===
+post_draws_cali <- as_draws_df(cali_brms)
+
+# === Calcular la probabilidad posterior de β > 0 ===
+prob_beta_gt0_cali <- mean(post_draws_cali$b_IyearM2010 > 0)
+
+cat("P(β > 0 | muestra Cali) ≈", round(prob_beta_gt0_cali, 4), "\n")
+```
+####**Observación**  
+La probabilidad posterior estimada  
+\[
+P(\beta > 0 \mid \text{datos}) \approx 0.7555
+\]  
+indica que cerca del 75.55 % de la masa posterior de \(\beta\) se concentra en valores positivos.  
+Esto refleja una asimetría moderada hacia una posible tendencia creciente en la tasa de delitos,  
+aunque también se observa una fracción no despreciable de probabilidad asignada a valores  
+negativos o cercanos a cero. Esta distribución posterior de \(\beta\), obtenida mediante simulaciones  
+MCMC, proporciona una representación más matizada y continua del conocimiento actualizado,  
+en concordancia con la interpretación propuesta por Gelman *et al.* (2013).
+
+### Paso 6: Comparación de tasas esperadas \( \lambda_{2010} \) vs. \( \lambda_{2019} \)
+
+#### Fundamento
+
+En el modelo de regresión Poisson con enlace logarítmico, la tasa esperada de delitos en el año \( t \) está dada por:
+
+$$
+\lambda_t = \exp\bigl(\alpha + \beta \cdot (t - 2010)\bigr)
+$$
+
+De esta forma, para los años clave:
+
+- \( \lambda_{2010} = \exp(\alpha) \)
+- \( \lambda_{2019} = \exp(\alpha + 9 \cdot \beta) \)
+
+A partir de las muestras posteriores obtenidas mediante MCMC, se simulan ambos valores para cada iteración, y se procede a:
+
+1. **Estimar la probabilidad posterior** de que la tasa haya aumentado:
+
+   $$
+   P(\lambda_{2019} > \lambda_{2010}) \approx \frac{1}{S} \sum_{s=1}^S \mathbb{I}\bigl(\lambda_{2019}^{(s)} > \lambda_{2010}^{(s)}\bigr)
+   $$
+
+2. **Calcular un intervalo creíble del 95%** para el cociente:
+
+   $$
+   \frac{\lambda_{2019}}{\lambda_{2010}}
+   $$
+
+Esto proporciona una **medida relativa del cambio** en la tasa de delitos durante el periodo analizado.
+
+> Este enfoque es coherente con las recomendaciones de *Gelman et al.* (2013, Cap. 3.4), donde se enfatiza que al trabajar con modelos jerárquicos o de regresión, no solo deben interpretarse los parámetros individuales, sino también transformaciones relevantes —como diferencias, razones o probabilidades— mediante simulaciones directas desde la distribución posterior.
+
+```{r}
+# === Paso 6: Simular tasas esperadas en 2010 y 2019 ===
+
+# Tasa para el año 2010 (α)
+lambda_2010_cali <- exp(post_draws_cali$b_Intercept)
+
+# Tasa para el año 2019 (α + 9β)
+lambda_2019_cali <- exp(post_draws_cali$b_Intercept +
+                        post_draws_cali$b_IyearM2010 * 9)
+
+# Comparación directa de probabilidades
+prob_lambda_gt_cali <- mean(lambda_2019_cali > lambda_2010_cali)
+
+# Intervalo creíble del 95 % para el cociente
+ratio_cali <- lambda_2019_cali / lambda_2010_cali
+ratio_ic_cali <- quantile(ratio_cali, probs = c(0.025, 0.5, 0.975))
+
+# Resultados
+cat("P(λ_2019 > λ_2010) en Cali ≈", round(prob_lambda_gt_cali, 4), "\n",
+    "IC95% del cociente λ_2019 / λ_2010 en Cali:",
+    paste(round(ratio_ic_cali, 3), collapse = " – "), "\n")
+
+
+```
+#### Observación
+
+La probabilidad posterior estimada de que la tasa esperada de delitos en Cali haya sido mayor en 2019 que en 2010 es aproximadamente 0.7555. El intervalo creíble del 95% para el cociente \( \lambda_{2019} / \lambda_{2010} \) se encuentra entre 0.818 y 1.510, lo cual indica una considerable dispersión en la magnitud posible del cambio. Estos resultados reflejan una inclinación moderada hacia una posible tendencia creciente, aunque también sugieren una incertidumbre significativa en la estimación de las tasas extremas del periodo.
+
+### Paso 7: Visualización – evolución de la tasa \( \lambda_t \) en Cali
+
+#### Objetivo
+
+Representar gráficamente, para cada año \( t \in \{2010, \dots, 2019\} \):
+
+- La **media posterior** de la tasa esperada \( \lambda_t = \mathbb{E}[Y_t] \)
+- Un **intervalo creíble del 95%** asociado, a partir de las muestras posteriores de \( \alpha \) y \( \beta \)
+
+Este gráfico permite observar la **tendencia temporal** en la tasa de delitos en Cali, e interpretar visualmente si ha habido un aumento sostenido, una disminución o estabilidad en el tiempo.
+
+> Este procedimiento refleja los principios descritos por *Gelman et al.* (2013, Cap.6.2), donde se enfatiza la importancia 
+de **visualizar cantidades inferidas** (posteriores), no solo para comunicar resultados, sino también para detectar patrones, tendencias o anomalías.
+
+
+```{r}
+# === Paso 7: Visualización de λ_t en Cali ===
+
+# Secuencia de años presentes en la muestra
+years_cali <- sort(unique(cali_yr_m$year))  # cali_yr_m ya contiene los conteos por año
+
+# Calcular λ_t = exp(α + β*(t - 2010)) para cada año y cada muestra
+lambda_mat_cali <- sapply(years_cali, function(t) {
+  exp(post_draws_cali$b_Intercept + post_draws_cali$b_IyearM2010 * (t - 2010))
+})
+
+# Crear resumen con media y percentiles por año
+lambda_df_cali <- data.frame(
+  year = years_cali,
+  mean = apply(lambda_mat_cali, 2, mean),
+  q025 = apply(lambda_mat_cali, 2, quantile, probs = 0.025),
+  q975 = apply(lambda_mat_cali, 2, quantile, probs = 0.975)
+)
+
+# Gráfico
+ggplot(lambda_df_cali, aes(x = year, y = mean)) +
+  geom_ribbon(aes(ymin = q025, ymax = q975), fill = "orange", alpha = 0.3) +
+  geom_line(color = "darkorange", size = 1.2) +
+  geom_point(size = 2) +
+  labs(
+    title = "Evolución de la tasa esperada de delitos en Cali",
+    subtitle = "Media posterior e intervalo creíble del 95%",
+    x = "Año", y = expression(lambda[t])
+  ) +
+  theme_minimal(base_size = 13)
+
+
+```
+#### Observación
+
+La visualización de la tasa esperada \( \lambda_t \) muestra una trayectoria suavemente ascendente entre 2010 y 2019. Si bien la media posterior crece de forma gradual, los intervalos creíbles del 95% son relativamente amplios y simétricos, lo que indica una **incertidumbre sustancial** sobre la tasa verdadera en cada año, especialmente hacia los extremos del periodo. Esta representación gráfica es consistente con la probabilidad posterior estimada de crecimiento y refuerza la necesidad de considerar tanto la tendencia central como la variabilidad asociada en los análisis de conteo con estructura temporal.
+
+```{r}
+# ----------------------------------------------------------
+# 0. Datos
+# ----------------------------------------------------------
+years <- cali_yr_m$year
+y     <- cali_yr_m$y
+stopifnot(length(years) == length(y))
+
+# ----------------------------------------------------------
+# 1. Priors débiles
+# ----------------------------------------------------------
+prior_sd <- 10          # σ para α y β
+
+# ----------------------------------------------------------
+# 2. Log‑posterior
+# ----------------------------------------------------------
+log_post <- function(a, b) {
+  lambda <- exp(a + b * (years - 2010))
+  sum(dpois(y, lambda, log = TRUE)) +
+    dnorm(a, 0, prior_sd, log = TRUE) +
+    dnorm(b, 0, prior_sd, log = TRUE)
+}
+
+# ----------------------------------------------------------
+# 3. Metropolis‑within‑Gibbs sampler
+# ----------------------------------------------------------
+set.seed(123)
+S   <- 15000           # iteraciones totales
+burn <- 3000           # descartadas
+
+alpha <- beta <- numeric(S)
+alpha[1] <- 0
+beta[1]  <- 0
+sd_prop_alpha <- 0.35  # varianzas propuestas (ligeramente mayores que Bogotá)
+sd_prop_beta  <- 0.07
+
+for (s in 2:S) {
+
+  # --- α
+  a_prop <- rnorm(1, alpha[s-1], sd_prop_alpha)
+  log_r  <- log_post(a_prop, beta[s-1]) - log_post(alpha[s-1], beta[s-1])
+  alpha[s] <- if (log(runif(1)) < log_r) a_prop else alpha[s-1]
+
+  # --- β
+  b_prop <- rnorm(1, beta[s-1], sd_prop_beta)
+  log_r  <- log_post(alpha[s], b_prop) - log_post(alpha[s], beta[s-1])
+  beta[s] <- if (log(runif(1)) < log_r) b_prop else beta[s-1]
+}
+
+# ----------------------------------------------------------
+# 4. Posterior resumida
+# ----------------------------------------------------------
+alpha_post <- alpha[-(1:burn)]
+beta_post  <- beta[-(1:burn)]
+
+cat("Media α:",  mean(alpha_post), "\n")
+cat("Media β:",  mean(beta_post),  "\n")
+cat("P(β>0)  :", mean(beta_post > 0), "\n")
+
+# ---- tasas 2010 y 2019
+lambda_2010 <- exp(alpha_post)
+lambda_2019 <- exp(alpha_post + beta_post * 9)
+
+cat("P(λ_2019 > λ_2010):",
+    mean(lambda_2019 > lambda_2010), "\n")
+
+cat("IC95% λ_2019 / λ_2010:",
+    quantile(lambda_2019 / lambda_2010, c(.025, .975)), "\n")
+
+# ----------------------------------------------------------
+# 5. Gráfica de convergencia para β
+# ----------------------------------------------------------
+par(mfrow = c(1,2))
+plot(beta_post, type = "l", col = "blue",
+     main = expression("Trace de "*beta),
+     ylab = expression(beta), xlab = "Iteración")
+acf(beta_post, main = expression("ACF de "*beta))
+
+```
+
+
+## 3. Comparación: Bogotá vs. Cali
+
+### 1. Pregunta concreta
+
+> ¿Ha aumentado más la tasa anual de delitos en Bogotá que en Cali durante el período 2010–2019?
+
+Este análisis busca comparar **directamente las pendientes** de crecimiento de la tasa de delitos en ambas ciudades.  
+Cada ciudad fue modelada por separado mediante una **regresión Poisson bayesiana con enlace logarítmico**:
+
+$$
+\log \lambda_t^{(c)} = \alpha^{(c)} + \beta^{(c)} \cdot (t - 2010)
+$$
+
+donde \( c \in \{\text{Bogotá}, \text{Cali}\} \), y \( \beta^{(c)} \) representa el **cambio promedio anual** en la tasa de delitos.
+
+El objetivo es evaluar la siguiente relación entre pendientes:
+
+$$
+\beta^{\text{Bogotá}} > \beta^{\text{Cali}}
+$$
+
+Para ello, se comparan directamente las distribuciones posteriores obtenidas mediante MCMC con `brms`.
+
+---
+
+### 2. Hipótesis bayesianas
+
+- **Hipótesis nula  \((H_0) \):**  
+  No hay evidencia suficiente de que la tasa de delitos crezca más rápido en Bogotá que en Cali:
+  $$
+  \beta^{\text{Bogotá}} \le \beta^{\text{Cali}}
+  $$
+
+- **Hipótesis alternativa  \((H_1) \):**  
+  La tasa de delitos en Bogotá ha crecido más rápidamente:
+  $$
+  \beta^{\text{Bogotá}} > \beta^{\text{Cali}}
+  $$
+
+Desde el enfoque bayesiano, la decisión se basará en calcular la **probabilidad posterior**:
+
+$$
+P(\beta^{\text{Bogotá}} > \beta^{\text{Cali}} \mid \text{datos})
+$$
+
+Este enfoque evita la necesidad de construir un modelo conjunto o recurrir a pruebas tradicionales, como lo destacan **McElreath (2020)** y **Gelman et al. (2013)**.
+
+---
+
+### 3. Inferencia bayesiana comparativa
+
+Dado que ya contamos con las muestras MCMC de las pendientes \( \beta^{\text{Bogotá}} \) y \( \beta^{\text{Cali}} \), el análisis se basa en la **diferencia de pendientes**:
+
+$$
+\Delta = \beta^{\text{Bogotá}} - \beta^{\text{Cali}}
+$$
+
+El procedimiento es el siguiente:
+
+1. **Restar las muestras emparejadas** de cada ciudad:  
+   Para cada iteración \( s \in \{1, \dots, S\} \):
+
+   $$
+   \Delta^{(s)} = \beta^{\text{Bogotá},(s)} - \beta^{\text{Cali},(s)}
+   $$
+
+2. **Estimar la probabilidad posterior** de diferencia positiva:
+
+   $$
+   P(\Delta > 0) \approx \frac{1}{S} \sum_{s=1}^S \mathbb{I}(\Delta^{(s)} > 0)
+   $$
+
+3. **Obtener el intervalo creíble del 95% para \( \Delta \)**:
+
+   $$
+   \text{IC}_{95\%}(\Delta) = \left[ Q_{2.5\%},\; Q_{97.5\%} \right]
+   $$
+
+Este procedimiento sigue las recomendaciones de *Gelman et al.* (2013, Cap.3), quienes proponen utilizar directamente las 
+simulaciones posteriores para comparar efectos sin depender de supuestos normalizadores o valores-*p* clásicos.
+
+```{r}
+# Asegúrate de que estos modelos ya estén definidos:
+# - bogo_brms: modelo ajustado para Bogotá
+# - cali_brms: modelo ajustado para Cali
+
+# Convertir las muestras MCMC a data frames
+post_draws_bogota <- as_draws_df(bogo_brms)
+post_draws_cali   <- as_draws_df(cali_brms)
+
+# Inspeccionar nombres para verificar las pendientes
+names(post_draws_bogota)
+names(post_draws_cali)
+```
+
+
+```{r}
+# === Paso 3: Comparación de pendientes beta (Bogotá vs Cali) ===
+
+# Asegúrate de tener los objetos post_draws_bogota y post_draws_cali disponibles
+
+# Extraer pendientes de cada ciudad
+beta_bog <- post_draws_bogota$b_IyearM2010
+beta_cali <- post_draws_cali$b_IyearM2010
+
+# Asegurar igual longitud de muestras (por si acaso)
+S <- min(length(beta_bog), length(beta_cali))
+beta_bog <- beta_bog[1:S]
+beta_cali <- beta_cali[1:S]
+
+# Calcular diferencia de pendientes
+delta <- beta_bog - beta_cali
+
+# Probabilidad posterior de que Bogotá tenga mayor crecimiento
+prob_delta_gt0 <- mean(delta > 0)
+
+# Intervalo creíble del 95% para Δ = β_bog - β_cali
+IC_delta <- quantile(delta, probs = c(0.025, 0.5, 0.975))
+
+# Mostrar resultados
+cat("P(β_Bogotá > β_Cali) ≈", round(prob_delta_gt0, 4), "\n",
+    "IC95% para Δ = β_Bog - β_Cali:", paste(round(IC_delta, 4), collapse = " – "), "\n")
+```
+
+
+## Conclusión comparativa: Bogotá vs.Cali (2010–2019)
+
+La inferencia bayesiana indica con **probabilidad posterior ≈1.00** que la pendiente de crecimiento anual de la tasa de delitos es **mayor en Bogotá** que en Cali:
+
+- \(P(\beta^{\text{Bogotá}} > \beta^{\text{Cali}} \mid \text{datos}) \approx 1.000\)
+- Intervalo creíble 95% de la diferencia \(\Delta = \beta^{\text{Bogotá}}-\beta^{\text{Cali}}\): \([0.28,\;0.36]\)
+
+**Interpretación**  
+- **Bogotá:** crecimiento sostenido y pronunciado (\(\lambda_{2019}/\lambda_{2010}\) ≈20).  
+- **Cali:** aumento leve (\(\lambda_{2019}/\lambda_{2010}\) ≈1.1).
+
+**Conclusión:** La tasa esperada de delitos se ha incrementado mucho más rápido en Bogotá que en Cali durante 2010‑2019, sugiriendo la necesidad de políticas de seguridad diferenciadas entre ambas ciudades.
