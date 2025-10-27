@@ -18,17 +18,14 @@ Breve descripción del problema: queremos saber si más del 50 % de los atracos 
 ## 3. Modelo de Verosimilitud (Binomial)
 
 Modelamos el número de delitos sin armas ($y$) como una distribución binomial, dado un número total de delitos ($N$) y una proporción desconocida ($\theta$):
-
 $$y | \theta \sim \text{Binomial}(N, \theta)$$
 
 La verosimilitud proporcional es:
-
 $$L(\theta | y) \propto \theta^y \cdot (1 - \theta)^{(N - y)}$$
 
 ## 4. Modelo Posterior (Conjugada Beta)
 
 Usando una prior conjugada $\text{Beta}(\alpha, \beta)$, la distribución posterior de $\theta$ es:
-
 $$\theta \mid y \sim \text{Beta}(\alpha + y,\ \beta + N - y)$$
 
 ## 5. Resultados y Conclusión
@@ -36,18 +33,17 @@ $$\theta \mid y \sim \text{Beta}(\alpha + y,\ \beta + N - y)$$
 ### 5.1. Probabilidad Posterior
 
 La probabilidad posterior de que la hipótesis alternativa sea cierta es:
-
 $$Pr(\theta > 0.5 | \text{datos}) = 0.1195$$
 
 Esto significa que, dado el modelo y los datos observados, existe solo una **probabilidad posterior del 11.95\%** de que **más de la mitad de los delitos se cometan sin armas**.
 
 **Interpretación**: Este valor no es suficientemente alto como para rechazar la hipótesis nula. **La evidencia respalda $H_0$**.
 
-### 5.2. Intervalo Creíble al 95%
+### 5.2. Intervalo Creíble al 95\%
 
 $$\text{IC}_{95\%}(\theta) = [0.4227, 0.5192]$$
 
-Este intervalo indica que, con un 95% de credibilidad, la proporción de delitos sin armas se encuentra entre **42.27\% y 51.92\%**.
+Este intervalo indica que, con un 95\% de credibilidad, la proporción de delitos sin armas se encuentra entre **42.27\% y 51.92\%**.
 
 **Interpretación**: Como el valor 0.5 está contenido dentro del intervalo, **no se puede descartar la hipótesis nula**.
 
@@ -77,17 +73,14 @@ Queremos saber:
 ## 2. Modelo y Verosimilitud (Multinomial)
 
 Los conteos por grupo etario $\mathbf{y} = (y_1, y_2, y_3, y_4)$ siguen una distribución **multinomial**:
-
 $$\mathbf{y} \mid \boldsymbol{\theta} \sim \text{Multinomial}(N, \boldsymbol{\theta})$$
 
 La verosimilitud es:
-
 $$\mathcal{L}(\boldsymbol{\theta} \mid \mathbf{y}) \propto \prod_{k=1}^{4} \theta_k^{y_k}$$
 
 ## 3. Modelo Posterior (Conjugada Dirichlet)
 
 Usando una prior conjugada $\text{Dirichlet}(\boldsymbol{\alpha})$, la posterior también es una Dirichlet con parámetros actualizados:
-
 $$\boldsymbol{\theta} \mid \mathbf{y} \sim \text{Dirichlet}(\boldsymbol{\alpha} + \mathbf{y})$$
 
 ## 4. Resultados y Conclusión
@@ -95,15 +88,13 @@ $$\boldsymbol{\theta} \mid \mathbf{y} \sim \text{Dirichlet}(\boldsymbol{\alpha} 
 ### 4.1. Probabilidad Posterior
 
 La probabilidad posterior de que la proporción de adultos supere el 65% es:
-
-$$P(\theta_{\mathrm{adultos}} > 0.65 \mid \text{datos}) = 0.8262$$
+$$P(\theta_{\text{adultos}} > 0.65 \mid \text{datos}) = 0.8262$$
 
 Esto indica que hay un **82.62\%** de probabilidad de que la proporción real de delitos cometidos contra adultos supere el 65 \%. Este valor denota **evidencia moderada** a favor de la hipótesis alternativa.
 
-### 4.2. Intervalo Creíble al 95%
+### 4.2. Intervalo Creíble al 95\%
 
 La marginal de una Dirichlet es una Beta. El intervalo creíble al 95\% para $\theta_{\text{adultos}}$ es:
-
 $$\text{IC}_{95\%}(\theta_{\text{adultos}}) = [0.6283, 0.7092]$$
 
 **Interpretación**: El intervalo creíble se encuentra entre **62.83\%** y **70.92\%**. Como el límite inferior está por debajo de 0.65, la **evidencia no es concluyente** bajo un umbral de alta exigencia.
@@ -123,15 +114,9 @@ Por tanto, **no hay evidencia suficiente para afirmar que más del 65\% de los d
 ### 3.1.1. Pregunta e Hipótesis
 
 ¿La tasa anual de delitos en Bogotá ($\lambda_{\text{Bog},t}$) ha aumentado entre 2010 y 2019?
-
 Modelamos el conteo $Y_t$ como:
-
-$$
-Y_{\text{Bog},t} \mid \lambda_{\text{Bog},t} \sim \text{Poisson}(\lambda_{\text{Bog},t})
-$$
-$$
-\log \lambda_{\text{Bog},t} = \alpha_{\text{Bog}} + \beta_{\text{Bog}} \cdot (t - 2010)
-$$
+$$Y_{\text{Bog},t} \mid \lambda_{\text{Bog},t} \sim \text{Poisson}(\lambda_{\text{Bog},t})$$
+$$\log \lambda_{\text{Bog},t} = \alpha_{\text{Bog}} + \beta_{\text{Bog}} \cdot (t - 2010)$$
 
 -   **$H_0$:** La tasa no ha aumentado ($\beta_{\text{Bog}} \le 0$).
 -   **$H_1$:** La tasa ha aumentado ($\beta_{\text{Bog}} > 0$).
@@ -139,7 +124,6 @@ $$
 ### 3.1.2. Resultados y Conclusión (Bogotá)
 
 El análisis posterior (vía MCMC con `brms` y *sampler* manual) arroja:
-
 -   $P(\beta_{\text{Bog}} > 0 \mid \text{datos}) \approx 1.000$
 -   $P(\lambda_{\text{Bog},2019} > \lambda_{\text{Bog},2010} \mid \text{datos}) \approx 1.000$
 -   $\text{IC}_{95\%}$ para el ratio $\lambda_{2019} / \lambda_{2010}$: **[15.95, 24.85]**
@@ -151,7 +135,6 @@ El análisis posterior (vía MCMC con `brms` y *sampler* manual) arroja:
 ### 3.2.1. Pregunta e Hipótesis
 
 ¿La tasa anual de delitos en Cali ($\lambda_{\text{Cali},t}$) ha aumentado entre 2010 y 2019?
-
 -   **$H_0$:** La tasa no ha aumentado ($\beta_{\text{Cali}} \le 0$).
 -   **$H_1$:** La tasa ha aumentado ($\beta_{\text{Cali}} > 0$).
 
@@ -170,14 +153,12 @@ El análisis posterior (vía MCMC con `brms` y *sampler* manual) arroja:
 ### 3.3.1. Pregunta e Hipótesis
 
 ¿Ha aumentado más rápido la tasa de delitos en Bogotá que en Cali?
-
 -   **$H_0$:** El crecimiento de Bogotá es menor o igual al de Cali ($\beta^{\text{Bogotá}} \le \beta^{\text{Cali}}$).
 -   **$H_1$:** El crecimiento de Bogotá es mayor que el de Cali ($\beta^{\text{Bogotá}} > \beta^{\text{Cali}}$).
 
 ### 3.3.2. Resultados y Conclusión (Comparativa)
 
 Comparamos las muestras posteriores de las pendientes $\Delta = \beta^{\text{Bogotá}} - \beta^{\text{Cali}}$:
-
 -   $P(\beta^{\text{Bogotá}} > \beta^{\text{Cali}} \mid \text{datos}) \approx 1.000$
 -   $\text{IC}_{95\%}$ para la diferencia de pendientes ($\Delta$): **[0.28, 0.36]**
 
