@@ -35,6 +35,7 @@
 ## 🗂️ Estructura del repo
 ```
 
+````
 .
 ├── README.md
 ├── _quarto.yml
