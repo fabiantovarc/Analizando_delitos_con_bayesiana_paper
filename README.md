@@ -41,7 +41,7 @@ Esto significa que, dado el modelo y los datos observados, existe solo una **pro
 
 ### 5.2. Intervalo Creíble al 95\%
 
-$$IC_{95\%}(\theta) = [0.4227, 0.5192]$$
+%IC_{95\%}(\theta) = [0.4227, 0.5192]%
 
 Este intervalo indica que, con un 95\% de credibilidad, la proporción de delitos sin armas se encuentra entre **42.27\% y 51.92\%**.
 
