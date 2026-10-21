@@ -1,167 +1,100 @@
-# Análisis Bayesiano de Tasas de Criminalidad en Colombia (2010-2019)
-# 1. Primer Modelo: Proporción de Delitos Sin Armas (Binomial-Beta)
+<div align="center">
+  <h1>Criminalidad e incertidumbre</h1>
+  <p><strong>Modelos bayesianos en R para analizar registros de Bogotá y Cali</strong><br>De una pregunta estadística a probabilidades posteriores, intervalos creíbles y comprobaciones del modelo.</p>
+  <p>
+    <img src="https://img.shields.io/badge/R-276DC3?logo=r&logoColor=white" alt="R">
+    <img src="https://img.shields.io/badge/brms-Bayesian-5B4B8A" alt="brms">
+    <img src="https://img.shields.io/badge/ggplot2-Visualización-1F77B4" alt="ggplot2">
+    <img src="https://img.shields.io/badge/R_Markdown-Documentación-276DC3" alt="R Markdown">
+  </p>
+  <p><a href="#resumen">Resumen</a> · <a href="#modelos">Modelos</a> · <a href="#resultados">Resultados</a> · <a href="#evidencia">Evidencia</a> · <a href="#alcance">Alcance</a></p>
+</div>
 
-## 1. Introducción
+Proyecto académico de estadística bayesiana. La fuente integra modelos conjugados y regresión de conteos para estudiar preguntas sobre registros delictivos de **2010–2019**. Su valor está en hacer explícita la incertidumbre y revisar qué puede sostener cada resultado.
 
-Breve descripción del problema: queremos saber si más del 50 % de los atracos se cometen sin armas.
+<a id="resumen"></a>
+## En 30 segundos
 
-## 2. Hipótesis
+| Aspecto | Evidencia disponible |
+|---|---|
+| Preguntas | Proporción de registros sin armas, composición etaria y evolución de conteos anuales |
+| Modelos | Beta–Binomial, Dirichlet–Multinomial y regresión Poisson bayesiana |
+| Computación | Actualizaciones conjugadas, simulación manual y ajustes con brms |
+| Muestras | Bloques de 400 registros o eventos, según la pregunta |
+| Entregable | Código, fórmulas e interpretación en un archivo R Markdown |
+| Competencia central | Comunicar resultados probabilísticos junto con sus supuestos y límites |
 
--   **Hipótesis nula ($H_0$)**
-    La proporción de delitos sin armas es igual o menor al 50 %.
-    $$H_0: \theta \le 0.5$$
+**[Examinar la fuente completa](Proyecto_bayesiana_delitos.Rmd)**
 
--   **Hipótesis alternativa ($H_1$)**
-    La proporción de delitos sin armas supera el 50 %.
-    $$H_1: \theta > 0.5$$
+Las cifras de esta página están documentadas en el texto histórico del proyecto. **No proceden de una nueva ejecución ni de una validación independiente.**
 
-## 3. Modelo de Verosimilitud (Binomial)
+<a id="modelos"></a>
+## Preguntas y modelos
 
-Modelamos el número de delitos sin armas ($y$) como una distribución binomial, dado un número total de delitos ($N$) y una proporción desconocida ($\theta$):
-$$y | \theta \sim \text{Binomial}(N, \theta)$$
+```mermaid
+flowchart LR
+    A["Datos históricos preparados"] --> B["Muestras según la pregunta"]
+    B --> C["Priors y verosimilitud"]
+    C --> D["Posterior e intervalos"]
+    D --> E["Chequeos e interpretación"]
+```
 
-La verosimilitud proporcional es:
-$$L(\theta | y) \propto \theta^y \cdot (1 - \theta)^{(N - y)}$$
+| Pregunta | Enfoque | Qué permite examinar |
+|---|---|---|
+| ¿La proporción registrada sin empleo de armas supera el 50 %? | Beta–Binomial | Probabilidad posterior de superar un umbral |
+| ¿El grupo etario adulto supera el 65 %? | Dirichlet–Multinomial | Composición por categorías y marginales Beta |
+| ¿Cómo cambian los conteos anuales esperados? | Poisson con enlace log | Pendientes temporales y comparación Bogotá–Cali |
 
-## 4. Modelo Posterior (Conjugada Beta)
+La fuente conserva **4 cadenas y 4.000 iteraciones por cadena** en los ajustes brms, con semilla 123. También incluye simulaciones y algoritmos manuales para estudiar los mecanismos de inferencia, no solo el uso de una biblioteca.
 
-Usando una prior conjugada $\text{Beta}(\alpha, \beta)$, la distribución posterior de $\theta$ es:
-$$\theta \mid y \sim \text{Beta}(\alpha + y,\ \beta + N - y)$$
+<a id="resultados"></a>
+## Resultados documentados
 
-## 5. Resultados y Conclusión
+| Análisis | Cifra histórica | Interpretación acotada |
+|---|---:|---|
+| Registros sin armas | P(θ > 0,5) = **11,95 %**; intervalo 95 % **[42,27 %; 51,92 %]** | La evidencia no permite afirmar una proporción mayor al 50 % con el criterio utilizado. |
+| Grupo adulto | P(θ > 0,65) = **82,62 %**; intervalo 95 % **[62,83 %; 70,92 %]** | Favorece superar el umbral, pero el intervalo incluye el 65 %. |
+| Tendencia de Cali | P(β > 0) ≈ **75,55 %**; razón 2019/2010 **[0,818; 1,510]** | El intervalo incluye 1: el crecimiento no es concluyente bajo el criterio del análisis. |
+| Diferencia de pendientes | P(βBogotá > βCali) cercana a 1; intervalo **[0,28; 0,36]** | La pendiente estimada de Bogotá es mayor en las muestras y modelos estudiados. |
 
-### 5.1. Probabilidad Posterior
+**Comprobar el ajuste también forma parte del resultado.** Los chequeos predictivos posteriores de Bogotá señalan discrepancias en los extremos. La fuente propone explorar sobredispersión o cambios de nivel, en lugar de interpretar una posterior estrecha como prueba suficiente de buen ajuste.
 
-La probabilidad posterior de que la hipótesis alternativa sea cierta es:
-$$Pr(\theta > 0.5 | \text{datos}) = 0.1195$$
+## Competencias demostradas
 
-Esto significa que, dado el modelo y los datos observados, existe solo una **probabilidad posterior del 11.95\%** de que **más de la mitad de los delitos se cometan sin armas**.
+- **Formulación estadística:** traducir preguntas a parámetros, distribuciones y umbrales.
+- **Inferencia bayesiana:** actualizar priors, obtener posteriores e interpretar intervalos creíbles.
+- **Computación en R:** trabajar con brms, dplyr, tidyr, lubridate y ggplot2.
+- **Evaluación de supuestos:** usar comprobaciones predictivas y reconocer discrepancias.
+- **Comunicación técnica:** reunir código, matemáticas y conclusiones en R Markdown.
 
-**Interpretación**: Este valor no es suficientemente alto como para rechazar la hipótesis nula. **La evidencia respalda $H_0$**.
+<a id="evidencia"></a>
+## Evidencia y navegación
 
-### 5.2. Intervalo Creíble al 95\%
+| Archivo | Qué contiene |
+|---|---|
+| [Proyecto_bayesiana_delitos.Rmd](Proyecto_bayesiana_delitos.Rmd) | Carga de datos, modelos conjugados, simulaciones, regresiones, gráficos y discusión histórica |
 
-$IC_{95\%}(\theta) = [0.4227, 0.5192]$
+Este repositorio conserva la **versión histórica centrada en R**. La [presentación complementaria del proyecto](https://github.com/fabiantovarc/analisis-bayesiano-delitos) organiza además archivos de preparación e informe; sus contenidos y cifras no deben asumirse idénticos a esta versión.
 
-Este intervalo indica que, con un 95\% de credibilidad, la proporción de delitos sin armas se encuentra entre **42.27\% y 51.92\%**.
+<a id="alcance"></a>
+## Alcance y reproducibilidad
 
-**Interpretación**: Como el valor 0.5 está contenido dentro del intervalo, **no se puede descartar la hipótesis nula**.
+> Los resultados describen registros y conteos bajo modelos concretos. No son tasas por habitante, evidencia causal, pronósticos validados fuera de muestra ni una medición completa de la criminalidad de cada ciudad.
 
-### 5.3. Conclusión Final (Modelo 1)
+<details>
+<summary><strong>Antes de intentar reproducir el análisis</strong></summary>
 
-Con base en la distribución posterior y su intervalo creíble al 95\%, **no se encuentra evidencia estadística fuerte a favor de la hipótesis alternativa**. Por tanto, **no se puede concluir** que la mayoría de los delitos sean cometidos sin armas.
+- Los CSV históricos de Bogotá y Cali **no están incluidos**. El R Markdown utiliza rutas locales que deben adaptarse.
+- Se necesita R y las bibliotecas llamadas por la fuente, incluida brms; generar PDF requiere además un entorno LaTeX compatible con XeLaTeX.
+- No hay archivo de versiones bloqueadas ni registro de una nueva ejecución integral.
+- Las muestras de registros/fila y las muestras de eventos ponderados por CANTIDAD no son la misma unidad de análisis.
+- La fuente conserva interpretaciones que deben leerse con cuidado: el intervalo [0,6283; 0,7092] **incluye 0,65**. Esta presentación no repite la afirmación histórica de que todo el intervalo lo supera.
+- Las etiquetas etarias no prueban por sí solas si describen víctimas o autores. “Sin empleo de armas” es una categoría del registro; su complemento no garantiza uso confirmado de armas.
 
----
+</details>
 
-# 2. Segundo Modelo: Perfil Etario de Víctimas (Multinomial-Dirichlet)
+## Autor y contexto
 
-## 1. Introducción
+**Edisson Fabian Tovar Castro**, según la autoría del R Markdown · [GitHub](https://github.com/fabiantovarc).
 
-Queremos saber:
-> ¿Es la proporción de delitos cometidos contra adultos ($\theta_{\text{adultos}}$) superior al 65 %?
-
-### Hipótesis Bayesiana
-
--   **Hipótesis nula ($H_0$):**
-    La proporción de víctimas adultas es igual o menor al 65\%.
-    $$H_0 : \theta_{\text{adultos}} \le 0.65$$
-
--   **Hipótesis alternativa ($H_1$):**
-    La proporción de víctimas adultas supera el 65\%.
-    $$H_1 : \theta_{\text{adultos}} > 0.65$$
-
-## 2. Modelo y Verosimilitud (Multinomial)
-
-Los conteos por grupo etario $\mathbf{y} = (y_1, y_2, y_3, y_4)$ siguen una distribución **multinomial**:
-$$\mathbf{y} \mid \boldsymbol{\theta} \sim \text{Multinomial}(N, \boldsymbol{\theta})$$
-
-La verosimilitud es:
-$$\mathcal{L}(\boldsymbol{\theta} \mid \mathbf{y}) \propto \prod_{k=1}^{4} \theta_k^{y_k}$$
-
-## 3. Modelo Posterior (Conjugada Dirichlet)
-
-Usando una prior conjugada $\text{Dirichlet}(\boldsymbol{\alpha})$, la posterior también es una Dirichlet con parámetros actualizados:
-$$\boldsymbol{\theta} \mid \mathbf{y} \sim \text{Dirichlet}(\boldsymbol{\alpha} + \mathbf{y})$$
-
-## 4. Resultados y Conclusión
-
-### 4.1. Probabilidad Posterior
-
-La probabilidad posterior de que la proporción de adultos supere el 65% es:
-$$P(\theta_{\text{adultos}} > 0.65 \mid \text{datos}) = 0.8262$$
-
-Esto indica que hay un **82.62\%** de probabilidad de que la proporción real de delitos cometidos contra adultos supere el 65 \%. Este valor denota **evidencia moderada** a favor de la hipótesis alternativa.
-
-### 4.2. Intervalo Creíble al 95\%
-
-La marginal de una Dirichlet es una Beta. El intervalo creíble al 95\% para $\theta_{\text{adultos}}$ es:
-$$IC_{95\%}(\theta_{\text{adultos}}) = [0.6283, 0.7092]$$
-
-**Interpretación**: El intervalo creíble se encuentra entre **62.83\%** y **70.92\%**. Como el límite inferior está por debajo de 0.65, la **evidencia no es concluyente** bajo un umbral de alta exigencia.
-
-### 4.3. Conclusión Final (Modelo 2)
-
-No se cumple el criterio de decisión bayesiana para considerar **evidencia fuerte**. Aunque la probabilidad posterior es alta (82.62\%), el intervalo creíble del 95\% no se encuentra completamente por encima de 0.65.
-
-Por tanto, **no hay evidencia suficiente para afirmar que más del 65\% de los delitos fueron cometidos contra adultos**.
-
----
-
-# 3. Tercer Modelo: Evolución Temporal de Delitos (Regresión Poisson)
-
-## 3.1. Análisis de Bogotá
-
-### 3.1.1. Pregunta e Hipótesis
-
-¿La tasa anual de delitos en Bogotá ($\lambda_{\text{Bog},t}$) ha aumentado entre 2010 y 2019?
-Modelamos el conteo $Y_t$ como:
-$$Y_{\text{Bog},t} \mid \lambda_{\text{Bog},t} \sim \text{Poisson}(\lambda_{\text{Bog},t})$$
-$$\log \lambda_{\text{Bog},t} = \alpha_{\text{Bog}} + \beta_{\text{Bog}} \cdot (t - 2010)$$
-
--   **$H_0$:** La tasa no ha aumentado ($\beta_{\text{Bog}} \le 0$).
--   **$H_1$:** La tasa ha aumentado ($\beta_{\text{Bog}} > 0$).
-
-### 3.1.2. Resultados y Conclusión (Bogotá)
-
-El análisis posterior (vía MCMC con `brms` y *sampler* manual) arroja:
--   $P(\beta_{\text{Bog}} > 0 \mid \text{datos}) \approx 1.000$
--   $P(\lambda_{\text{Bog},2019} > \lambda_{\text{Bog},2010} \mid \text{datos}) \approx 1.000$
--   $IC_{95\%}$ para el ratio $\lambda_{2019} / \lambda_{2010}$: **[15.95, 24.85]**
-
-**Conclusión (Bogotá):** Existe **evidencia contundente** de que la tasa de delitos en Bogotá ha aumentado de manera sostenida. El modelo estima que la tasa de 2019 fue, con un 95\% de credibilidad, entre 16 y 25 veces mayor que la tasa de 2010.
-
-## 3.2. Análisis de Cali
-
-### 3.2.1. Pregunta e Hipótesis
-
-¿La tasa anual de delitos en Cali ($\lambda_{\text{Cali},t}$) ha aumentado entre 2010 y 2019?
--   **$H_0$:** La tasa no ha aumentado ($\beta_{\text{Cali}} \le 0$).
--   **$H_1$:** La tasa ha aumentado ($\beta_{\text{Cali}} > 0$).
-
-### 3.2.2. Resultados y Conclusión (Cali)
-
--   $P(\beta_{\text{Cali}} > 0 \mid \text{datos}) \approx 0.7555$
--   $P(\lambda_{\text{Cali},2019} > \lambda_{\text{Cali},2010} \mid \text{datos}) \approx 0.7555$
--   $IC_{95\%}$ para el ratio $\lambda_{2019} / \lambda_{2010}$: **[0.818, 1.510]**
-
-**Observación:** La probabilidad posterior de crecimiento es moderada (75.55\%). El intervalo creíble para el ratio de tasas es amplio e **incluye el 1.0**, lo que significa que no se puede descartar la hipótesis nula (estabilidad o incluso un leve descenso).
-
-**Conclusión (Cali):** No hay evidencia estadística fuerte para afirmar que la tasa de delitos en Cali haya aumentado. Los datos son consistentes con una tendencia estable.
-
-## 3.3. Comparación: Bogotá vs. Cali
-
-### 3.3.1. Pregunta e Hipótesis
-
-¿Ha aumentado más rápido la tasa de delitos en Bogotá que en Cali?
--   **$H_0$:** El crecimiento de Bogotá es menor o igual al de Cali ($\beta^{\text{Bogotá}} \le \beta^{\text{Cali}}$).
--   **$H_1$:** El crecimiento de Bogotá es mayor que el de Cali ($\beta^{\text{Bogotá}} > \beta^{\text{Cali}}$).
-
-### 3.3.2. Resultados y Conclusión (Comparativa)
-
-Comparamos las muestras posteriores de las pendientes $\Delta = \beta^{\text{Bogotá}} - \beta^{\text{Cali}}$:
--   $P(\beta^{\text{Bogotá}} > \beta^{\text{Cali}} \mid \text{datos}) \approx 1.000$
--   $IC_{95\%}$ para la diferencia de pendientes ($\Delta$): **[0.28, 0.36]**
-
-**Conclusión Final (Comparativa):** La inferencia bayesiana indica con una probabilidad posterior de prácticamente el 100\% que la pendiente de crecimiento anual es **mayor en Bogotá que en Cali**. Dado que el intervalo creíble para la diferencia de pendientes `[0.28, 0.36]` está completamente por encima de cero, la evidencia es concluyente.
-
-La tasa esperada de delitos se ha incrementado mucho más rápido en Bogotá que en Cali durante el período 2010‑2019.
+Trabajo académico. Esta presentación documental no modifica el código, los modelos ni los resultados históricos.
