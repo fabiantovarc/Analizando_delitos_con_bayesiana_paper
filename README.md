@@ -32,7 +32,7 @@ Las cifras de esta página están documentadas en el texto histórico del proyec
 ## Preguntas y modelos
 
 ```mermaid
-flowchart LR
+flowchart TB
     A["Datos históricos preparados"] --> B["Muestras según la pregunta"]
     B --> C["Priors y verosimilitud"]
     C --> D["Posterior e intervalos"]
